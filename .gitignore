@@ -1,5 +1,5 @@
 web/node_modules
-web/dist
+web/public
 
 # Binaries for programs and plugins
 server/*.exe

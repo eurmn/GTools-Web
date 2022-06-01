@@ -10,20 +10,21 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/fasthttp/websocket"
 	"github.com/valyala/fasthttp"
 	"golang.org/x/sys/windows"
 )
 
 var fsHandler fasthttp.RequestHandler
+var upgrader = websocket.FastHTTPUpgrader{}
 
 func main() {
 	port := 4246
-	addr := fmt.Sprintf("0.0.0.0:%d", port)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	fs := &fasthttp.FS{
-		Root:       "./public",
+		Root:       "./web/public",
 		IndexNames: []string{"index.html"},
-		Compress:   true,
 	}
 	fsHandler = fs.NewRequestHandler()
 
@@ -37,10 +38,10 @@ func main() {
 	// Start LCU communication.
 	// Useful information: https://hextechdocs.dev/tag/lcu/.
 	leaguePath := retrieveLeaguePath()
-	log.Printf("%s", leaguePath)
+	log.Printf("LeagueClientUX: %s", leaguePath)
 
 	lockfile := watchForLockfile(leaguePath)
-	log.Printf("%s", lockfile)
+	log.Printf("Lockfile: %s", lockfile)
 
 	// Wait forever.
 	select {}
@@ -48,8 +49,12 @@ func main() {
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
 	switch string(ctx.Path()) {
+	case "/ws_updater":
+		// todo
+		break
 	default:
 		fsHandler(ctx)
+		break
 	}
 }
 
@@ -103,6 +108,7 @@ func retrieveLeaguePath() string {
 	return leaguePath
 }
 
+// Search on the specified path for the lockfile and return its content.
 func watchForLockfile(leaguePath string) string {
 	lockfilePath := fmt.Sprintf("%s\\lockfile", leaguePath)
 
