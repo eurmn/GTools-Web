@@ -39,7 +39,8 @@ func main() {
 	leaguePath := retrieveLeaguePath()
 	log.Printf("%s", leaguePath)
 
-	watchForLockfile(leaguePath)
+	lockfile := watchForLockfile(leaguePath)
+	log.Printf("%s", lockfile)
 
 	// Wait forever.
 	select {}
@@ -102,7 +103,7 @@ func retrieveLeaguePath() string {
 	return leaguePath
 }
 
-func watchForLockfile(leaguePath string) {
+func watchForLockfile(leaguePath string) string {
 	lockfilePath := fmt.Sprintf("%s\\lockfile", leaguePath)
 
 	fmt.Println(lockfilePath)
@@ -120,5 +121,5 @@ func watchForLockfile(leaguePath string) {
 		log.Fatalf("Failed to read lockfile: %v", err)
 	}
 
-	fmt.Println(string(content))
+	return string(content)
 }
