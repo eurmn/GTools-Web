@@ -1,33 +1,29 @@
-import type { Component } from 'solid-js';
+import { Component, createSignal } from 'solid-js';
 
 import logo from './logo.svg';
-import styles from './App.module.css';
+import io from 'socket.io-client';
+import * as events from './types/Events'
 
 const App: Component = () => {
-    let websocket = new WebSocket('ws://' + location.host + '/ws_updater');
+  let [username, setUsername] = createSignal('');
+  let [iconId, setIconId] = createSignal('');
 
-    websocket.onmessage = (event) => {
-        console.log(event.data);
-    };
+  let ws = new WebSocket('ws://' + location.hostname + ':4246/lcu');
+  ws.onmessage = (e: MessageEvent<string>) => {
+    let data: events.Event = JSON.parse(e.data);
+    switch (data.type) {
+      case events.EventType.USER_INFO:
+        setUsername(data.username);
+        setIconId(data.iconId);
+        break;
+    }
+  };
 
-    return (
-        <div class={styles.App}>
-            <header class={styles.header}>
-                <img src={logo} class={styles.logo} alt="logo" />
-                <p class="text-green-400">
-                    Edit <code>src/App.tsx</code> and save to reload.
-                </p>
-                <a
-                    class={styles.link}
-                    href="https://github.com/solidjs/solid"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >
-                    Learn Solid
-                </a>
-            </header>
-        </div>
-    );
+  return (
+    <div class="h-full w-full bg-slate-900 text-white">
+      <span class="text-5xl">{username()}</span>
+    </div>
+  );
 };
 
 export default App;

@@ -1,5 +1,5 @@
 web/node_modules
-web/public
+public/
 
 # Binaries for programs and plugins
 server/*.exe
@@ -16,3 +16,5 @@ server/*.out
 
 # Go workspace file
 server/go.work
+
+.gitconfig
