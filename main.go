@@ -24,12 +24,12 @@ import (
 )
 
 var (
-	lcuOnly = flag.Bool("lcu-only", false, "wether or not to disable file serving and only serve LCU communication")
+	debug = flag.Bool("debug", false, "wether or not to enable debug mode - static files are not served in this case")
 )
 
 const (
-	USER_INFO  = uint8(0)
-	LCU_UPDATE = uint8(1)
+	USER_INFO       = uint8(0)
+	CHAMPION_CHANGE = uint8(1)
 )
 
 type AuthInformation struct {
@@ -42,12 +42,12 @@ type UserInformation struct {
 	iconId   string
 }
 
-var userInformation UserInformation
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+type ChampionChange struct {
+	championId string
 }
+
+var userInformation UserInformation
+var upgrader = websocket.Upgrader{}
 var wsQueue chan interface{}
 var subscriberCount = 0
 
@@ -61,7 +61,10 @@ func main() {
 	router := gin.New()
 
 	// if lcu-only, serve only websocket server.
-	if !(*lcuOnly) {
+	if *debug {
+		// Accept CORS websocket.
+		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	} else {
 		router.GET("/", func(c *gin.Context) {
 			c.Redirect(http.StatusMovedPermanently, "public/")
 		})
@@ -106,7 +109,7 @@ func main() {
 		}
 	})
 
-	if err := router.Run(":4246"); err != nil {
+	if err := router.Run("0.0.0.0:4246"); err != nil {
 		log.Fatal("failed run app: ", err)
 	}
 }
@@ -189,10 +192,7 @@ func LcuCommunication() {
 	defer c.Close()
 
 	// Subscribe to changes on the current champion
-	err = c.WriteJSON([]interface{}{5, "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion"})
-	if err != nil {
-		log.Printf("Failed to subscribe to event: %v", err)
-	}
+	SubscribeToLCUEvent("OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion", c)
 
 	// Listen to the websocket
 	for {
@@ -213,7 +213,7 @@ func LcuCommunication() {
 			continue
 		}
 
-		log.Println(j.String())
+		log.Println(j.Array())
 	}
 }
 
@@ -224,6 +224,11 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 			"type":     eventType,
 			"username": data.(UserInformation).username,
 			"iconId":   data.(UserInformation).iconId,
+		}, nil
+	case CHAMPION_CHANGE:
+		return map[string]interface{}{
+			"type":        eventType,
+			"champion_id": data.(ChampionChange).championId,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
@@ -326,6 +331,10 @@ func watchForLockfile(leaguePath string) AuthInformation {
 	return authInfo
 }
 
-func SubscribeToLCUEvent(eventName string) {
-
+func SubscribeToLCUEvent(eventName string, c *websocket.Conn) {
+	// https://hextechdocs.dev/getting-started-with-the-lcu-websocket#subscribing-to-events
+	err := c.WriteJSON([]interface{}{5, "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion"})
+	if err != nil {
+		log.Printf("Failed to subscribe to event: %v", err)
+	}
 }
