@@ -2,12 +2,14 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,13 +49,14 @@ var upgrader = websocket.Upgrader{
 	},
 }
 var wsQueue chan interface{}
+var subscriberCount = 0
 
 func main() {
 	flag.Parse()
 
 	go LcuCommunication()
 
-	wsQueue = make(chan interface{}, 1)
+	wsQueue = make(chan interface{})
 
 	router := gin.New()
 
@@ -87,9 +90,15 @@ func main() {
 			}
 		}
 
+		subscriberCount++
+		defer func() {
+			subscriberCount--
+		}()
+
 		for {
 			message := <-wsQueue
 			err := w.WriteJSON(message)
+			log.Println("Sending Message")
 			if err != nil {
 				log.Println("write:", err)
 				return
@@ -121,7 +130,8 @@ func LcuCommunication() {
 		},
 	}
 
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/lol-summoner/v1/current-summoner", authInfo.Url), nil)
+	// Get current summoner
+	r, err := http.NewRequest("GET", fmt.Sprintf("https://%s/lol-summoner/v1/current-summoner", authInfo.Url), nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
 	}
@@ -147,17 +157,67 @@ func LcuCommunication() {
 		iconId:   fmt.Sprint(j.Get("profileIconId").GetInt()),
 	}
 
-	msg, err := CreateWSMessage(USER_INFO, userInformation)
+	// Emit the current summoner info to every client
+	if err := EmitEvent(USER_INFO, userInformation); err != nil {
+		log.Println("Failed to emit event: ", err)
+	}
+
+	// LCU Websocket
+	u := url.URL{Scheme: "wss", Host: authInfo.Url, Path: "/"}
+	d := websocket.Dialer{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	b := base64.StdEncoding.EncodeToString([]byte("riot:" + authInfo.Authentication))
+	c, res, err := d.Dial(u.String(),
+		http.Header{"Authorization": []string{fmt.Sprintf("Basic %s", b)}})
+
 	if err != nil {
-		log.Println("Failed to create message: ", err)
-	} else {
-		for range wsQueue {
-			wsQueue <- msg
+		log.Printf("Failed to dial: %v", err)
+		if res != nil {
+			body, err = ioutil.ReadAll(res.Body)
+			log.Println(string(body))
+			if err != nil {
+				log.Printf("%d: Failed to read response: %v", res.StatusCode, err)
+			}
 		}
+		return
+	}
+
+	defer c.Close()
+
+	// Subscribe to changes on the current champion
+	err = c.WriteJSON([]interface{}{5, "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion"})
+	if err != nil {
+		log.Printf("Failed to subscribe to event: %v", err)
+	}
+
+	// Listen to the websocket
+	for {
+		_, message, err := c.ReadMessage()
+		if err != nil {
+			log.Printf("Failed to read message: %v", err)
+			continue
+		}
+
+		// The client sends an empty string when the websocket is first connected
+		if string(message) == "" {
+			continue
+		}
+
+		j, err := fastjson.ParseBytes(message)
+		if err != nil {
+			log.Printf("Failed to parse message: %v", err)
+			continue
+		}
+
+		log.Println(j.String())
 	}
 }
 
-func CreateWSMessage(eventType uint8, data interface{}) (map[string]interface{}, error) {
+func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interface{}, err error) {
 	switch eventType {
 	case USER_INFO:
 		return map[string]interface{}{
@@ -168,6 +228,17 @@ func CreateWSMessage(eventType uint8, data interface{}) (map[string]interface{},
 	default:
 		return nil, errors.New("unknown event type")
 	}
+}
+
+func EmitEvent(eventType uint8, data interface{}) (err error) {
+	msg, err := CreateWSMessage(USER_INFO, userInformation)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < subscriberCount; i++ {
+		wsQueue <- msg
+	}
+	return nil
 }
 
 func GetMemoryUsage() uint64 {
@@ -248,9 +319,13 @@ func watchForLockfile(leaguePath string) AuthInformation {
 	splitedLockfile := strings.Split(string(content), ":")
 
 	authInfo := AuthInformation{
-		Url:            fmt.Sprintf("https://127.0.0.1:%s", splitedLockfile[2]),
+		Url:            fmt.Sprintf("127.0.0.1:%s", splitedLockfile[2]),
 		Authentication: splitedLockfile[3],
 	}
 
 	return authInfo
+}
+
+func SubscribeToLCUEvent(eventName string) {
+
 }
