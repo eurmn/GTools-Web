@@ -81,7 +81,7 @@ func main() {
 		}
 
 		defer w.Close()
-		log.Printf("%s connected", w.RemoteAddr())
+		log.Printf("%s connected (%dmb)", w.RemoteAddr(), GetMemoryUsage())
 
 		// don't send user information if it is not yet defined.
 		if userInformation.username != "" {
@@ -117,10 +117,10 @@ func main() {
 func LcuCommunication() {
 	// Start LCU communication.
 	// Useful information: https://hextechdocs.dev/tag/lcu/.
-	leaguePath := retrieveLeaguePath()
+	leaguePath := RetrieveLeaguePath()
 	log.Printf("LeagueClientUX: %s", leaguePath)
 
-	authInfo := watchForLockfile(leaguePath)
+	authInfo := WatchForLockfile(leaguePath)
 	log.Printf("%s", authInfo.Authentication)
 
 	/// LCU uses a self-signed certificate, so we need to disable TLS verification.
@@ -213,6 +213,11 @@ func LcuCommunication() {
 			continue
 		}
 
+		if string(j.Get("2").GetStringBytes("eventType")) == "Create" {
+			EmitEvent(CHAMPION_CHANGE, map[string]interface{}{
+				"championId": fmt.Sprint((j.GetInt("data"))),
+			})
+		}
 		log.Println(j.Array())
 	}
 }
@@ -246,6 +251,7 @@ func EmitEvent(eventType uint8, data interface{}) (err error) {
 	return nil
 }
 
+// Returns the total virtual memory consumed by the process in MB.
 func GetMemoryUsage() uint64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -253,7 +259,7 @@ func GetMemoryUsage() uint64 {
 }
 
 // Search for a LeagueClient.exe process and returns its executable path.
-func retrieveLeaguePath() string {
+func RetrieveLeaguePath() string {
 	var leaguePath string
 
 	for leaguePath == "" {
@@ -304,7 +310,7 @@ func retrieveLeaguePath() string {
 
 // Search on the specified path for the lockfile and return its relevant part
 // - API URL and auth code.
-func watchForLockfile(leaguePath string) AuthInformation {
+func WatchForLockfile(leaguePath string) AuthInformation {
 	lockfilePath := fmt.Sprintf("%s\\lockfile", leaguePath)
 
 	_, err := os.Stat(lockfilePath)

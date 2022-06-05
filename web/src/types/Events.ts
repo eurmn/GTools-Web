@@ -6,13 +6,14 @@ export type UserInfo = {
 
 export enum EventType {
     USER_INFO = 0,
-    LCU_UPDATE = 1
+    CHAMPION_CHANGE = 1
 }
 
 export type Event = {
-    type: 0;
+    type: EventType.USER_INFO;
     username: string;
-    iconId:   string;
+    iconId: string;
 } | {
-    type: EventType.LCU_UPDATE;
+    type: EventType.CHAMPION_CHANGE;
+    championId: string;
 }
