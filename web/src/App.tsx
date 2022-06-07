@@ -1,7 +1,6 @@
 import { Component, createSignal, Show } from 'solid-js';
 
 import logo from './logo.svg';
-import io from 'socket.io-client';
 import * as events from './types/Events'
 
 const App: Component = () => {
