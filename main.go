@@ -396,7 +396,7 @@ func WatchForLockfile(leaguePath string) AuthInformation {
 
 func SubscribeToLCUEvent(eventName string, c *websocket.Conn) {
 	// https://hextechdocs.dev/getting-started-with-the-lcu-websocket#subscribing-to-events
-	err := c.WriteJSON([]interface{}{5, "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion"})
+	err := c.WriteJSON([]interface{}{5, eventName})
 	if err != nil {
 		log.Printf("Failed to subscribe to event: %v", err)
 	}
