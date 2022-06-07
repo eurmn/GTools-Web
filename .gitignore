@@ -1,5 +1,7 @@
 web/node_modules
 web/public
+web/dist
+web/pnpm-lock.yaml
 
 # Binaries for programs and plugins
 *.exe

@@ -24,6 +24,8 @@
     "vite-plugin-solid": "^2.2.6"
   },
   "dependencies": {
+    "@fontsource/inter": "^4.5.11",
+    "@fontsource/quicksand": "^4.5.9",
     "socket.io-client": "1.4.0",
     "solid-js": "^1.4"
   }

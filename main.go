@@ -49,7 +49,7 @@ type ChampionChange struct {
 var userInformation UserInformation
 var upgrader = websocket.Upgrader{}
 var wsQueue chan interface{}
-var subscriberCount = 0
+var subscribers = []uint8{}
 
 func main() {
 	flag.Parse()
@@ -60,7 +60,7 @@ func main() {
 
 	router := gin.New()
 
-	// if lcu-only, serve only websocket server.
+	// if in debug mode, then serve only websocket server.
 	if *debug {
 		// Accept CORS websocket.
 		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
@@ -81,7 +81,10 @@ func main() {
 		}
 
 		defer w.Close()
-		log.Printf("%s connected (%dmb)", w.RemoteAddr(), GetMemoryUsage())
+
+		subId := Subscribe()
+
+		log.Printf("%s (sid %d) connected (%dmb)", w.RemoteAddr(), subId, GetMemoryUsage())
 
 		// don't send user information if it is not yet defined.
 		if userInformation.username != "" {
@@ -93,18 +96,50 @@ func main() {
 			}
 		}
 
-		subscriberCount++
-		defer func() {
-			subscriberCount--
+		w.SetCloseHandler(func(code int, text string) error {
+			log.Printf("%s (sid %d) disconnected (%dmb)", w.RemoteAddr(), subId, GetMemoryUsage())
+			Unsubsribe(subId)
+			return nil
+		})
+
+		go func() {
+			for {
+				mt, _, err := w.ReadMessage()
+				// aparently when the client closes the connection,
+				// the ReadMessage() call returns an error. (?)
+				if err != nil {
+					break
+				}
+				// most likely this code will never be executed.
+				// maybe only if the close message is sent explicitly
+				// inside the javascript code on the frontend.
+				if mt == websocket.CloseMessage {
+					log.Printf("%d listeners", len(subscribers))
+					break
+				}
+			}
 		}()
 
 		for {
 			message := <-wsQueue
-			err := w.WriteJSON(message)
-			log.Println("Sending Message")
-			if err != nil {
-				log.Println("write:", err)
-				return
+
+			// if message is a uint8, then it is a subscription id.
+			switch message.(type) {
+			case uint8:
+				// if its this goroutine's id, then break the loop.
+				if message == subId {
+					break
+				}
+			default:
+				// if it is not a uint8, then it is a message
+				// and we should send it to the client.
+				err := w.WriteJSON(message)
+				log.Println("Sending Message")
+
+				if err != nil {
+					log.Println("write:", err)
+					return
+				}
 			}
 		}
 	})
@@ -114,9 +149,9 @@ func main() {
 	}
 }
 
+// Start LCU communication.
+// Useful information: https://hextechdocs.dev/tag/lcu/.
 func LcuCommunication() {
-	// Start LCU communication.
-	// Useful information: https://hextechdocs.dev/tag/lcu/.
 	leaguePath := RetrieveLeaguePath()
 	log.Printf("LeagueClientUX: %s", leaguePath)
 
@@ -150,7 +185,7 @@ func LcuCommunication() {
 		log.Fatalf("Failed to read response: %v", err)
 	}
 
-	j, err := fastjson.Parse(string(body))
+	j, err := fastjson.ParseBytes(body)
 	if err != nil {
 		log.Fatalf("Failed to parse response: %v", err)
 	}
@@ -173,6 +208,7 @@ func LcuCommunication() {
 		},
 	}
 
+	// basic authentication (riot:<password>) -> base64
 	b := base64.StdEncoding.EncodeToString([]byte("riot:" + authInfo.Authentication))
 	c, res, err := d.Dial(u.String(),
 		http.Header{"Authorization": []string{fmt.Sprintf("Basic %s", b)}})
@@ -214,11 +250,10 @@ func LcuCommunication() {
 		}
 
 		if string(j.Get("2").GetStringBytes("eventType")) == "Create" {
-			EmitEvent(CHAMPION_CHANGE, map[string]interface{}{
-				"championId": fmt.Sprint((j.GetInt("data"))),
+			EmitEvent(CHAMPION_CHANGE, ChampionChange{
+				championId: fmt.Sprint((j.Get("2").GetInt("data"))),
 			})
 		}
-		log.Println(j.Array())
 	}
 }
 
@@ -232,8 +267,8 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 		}, nil
 	case CHAMPION_CHANGE:
 		return map[string]interface{}{
-			"type":        eventType,
-			"champion_id": data.(ChampionChange).championId,
+			"type":       eventType,
+			"championId": data.(ChampionChange).championId,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
@@ -241,14 +276,33 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 }
 
 func EmitEvent(eventType uint8, data interface{}) (err error) {
-	msg, err := CreateWSMessage(USER_INFO, userInformation)
+	msg, err := CreateWSMessage(eventType, data)
 	if err != nil {
 		return err
 	}
-	for i := 0; i < subscriberCount; i++ {
+	for i := 0; i < len(subscribers); i++ {
 		wsQueue <- msg
 	}
 	return nil
+}
+
+// assign this goroutine an unique id that will be used
+// to unsubsribe it from the LCU events.
+func Subscribe() (id uint8) {
+	var subId uint8
+	if len(subscribers) == 0 {
+		subId = 0
+	} else {
+		subId = subscribers[len(subscribers)-1] + 1
+	}
+	subscribers = append(subscribers, subId)
+	return subId
+}
+
+func Unsubsribe(id uint8) {
+	for i := 0; i < len(subscribers); i++ {
+		wsQueue <- id
+	}
 }
 
 // Returns the total virtual memory consumed by the process in MB.
@@ -283,13 +337,16 @@ func RetrieveLeaguePath() string {
 				var moduleEntry windows.ModuleEntry32
 				moduleEntry.Size = uint32(unsafe.Sizeof(moduleEntry))
 
-				// Create a snapshot with the information of the process.
 				moduleSnapshot, err := windows.CreateToolhelp32Snapshot(
 					windows.TH32CS_SNAPMODULE, processEntry.ProcessID,
 				)
+				for err != nil {
+					log.Printf("Failed to create module snapshot: %v", err)
 
-				if err != nil {
-					log.Fatalf("Failed to create module snapshot: %v", err)
+					// Create a snapshot with the information of the process.
+					moduleSnapshot, err = windows.CreateToolhelp32Snapshot(
+						windows.TH32CS_SNAPMODULE, processEntry.ProcessID,
+					)
 				}
 
 				windows.Module32First(moduleSnapshot, &moduleEntry)
