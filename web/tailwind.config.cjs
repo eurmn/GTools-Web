@@ -3,8 +3,8 @@ module.exports = {
     theme: {
         extend: {
             fontFamily: {
-                inter: ["Inter", "sans-serif"],
-                quicksand: ["Quicksand", "sans-serif"],
+                inter: ["\"InterVariable\"", "sans-serif"],
+                quicksand: ["\"QuicksandVariable\"", "sans-serif"],
             }
         },
     },

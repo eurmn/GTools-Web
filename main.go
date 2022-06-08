@@ -6,7 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -30,6 +30,7 @@ var (
 const (
 	USER_INFO       = uint8(0)
 	CHAMPION_CHANGE = uint8(1)
+	CDRAGON         = "https://raw.communitydragon.org/latest"
 )
 
 type AuthInformation struct {
@@ -38,23 +39,37 @@ type AuthInformation struct {
 }
 
 type UserInformation struct {
-	username string
-	iconId   string
+	Username string
+	IconId   string
 }
 
 type ChampionChange struct {
-	championId string
+	ChampionId   string
+	ChampionName string
 }
 
 var userInformation UserInformation
 var upgrader = websocket.Upgrader{}
 var wsQueue chan interface{}
 var subscribers = []uint8{}
+var championNames = map[uint16]string{}
+var currentVersion string
 
 func main() {
 	flag.Parse()
 
 	go LcuCommunication()
+
+	var err error
+	currentVersion, err = GetCurrentLeagueVersion()
+	if err != nil {
+		log.Fatalf("Failed to get current League version: %v", err)
+	}
+
+	championNames, err = GetUpdatedChampionNames()
+	if err != nil {
+		log.Fatalf("Failed to get updated champion names: %v", err)
+	}
 
 	wsQueue = make(chan interface{})
 
@@ -68,7 +83,9 @@ func main() {
 		router.GET("/", func(c *gin.Context) {
 			c.Redirect(http.StatusMovedPermanently, "public/")
 		})
-		router.StaticFS("/public/", http.Dir("./public/"))
+		router.StaticFS("/public/", http.Dir("./web/dist/"))
+
+		// TODO: set log to log-file at %appdata% or %localappdata%
 	}
 
 	// lcu websocket endpoint
@@ -87,7 +104,7 @@ func main() {
 		log.Printf("%s (sid %d) connected (%dmb)", w.RemoteAddr(), subId, GetMemoryUsage())
 
 		// don't send user information if it is not yet defined.
-		if userInformation.username != "" {
+		if userInformation.Username != "" {
 			msg, err := CreateWSMessage(USER_INFO, userInformation)
 			if err != nil {
 				log.Println("Failed to create message: ", err)
@@ -98,7 +115,7 @@ func main() {
 
 		w.SetCloseHandler(func(code int, text string) error {
 			log.Printf("%s (sid %d) disconnected (%dmb)", w.RemoteAddr(), subId, GetMemoryUsage())
-			Unsubsribe(subId)
+			Unsubscribe(subId)
 			return nil
 		})
 
@@ -126,15 +143,15 @@ func main() {
 			// if message is a uint8, then it is a subscription id.
 			switch message.(type) {
 			case uint8:
-				// if its this goroutine's id, then break the loop.
+				// if it's this goroutine's id, then break the loop.
 				if message == subId {
-					break
+					return
 				}
 			default:
 				// if it is not a uint8, then it is a message
 				// and we should send it to the client.
 				err := w.WriteJSON(message)
-				log.Println("Sending Message")
+				log.Printf("(sid %d) Sending Message", subId)
 
 				if err != nil {
 					log.Println("write:", err)
@@ -158,7 +175,7 @@ func LcuCommunication() {
 	authInfo := WatchForLockfile(leaguePath)
 	log.Printf("%s", authInfo.Authentication)
 
-	/// LCU uses a self-signed certificate, so we need to disable TLS verification.
+	// LCU uses a self-signed certificate, so we need to disable TLS verification.
 	// https://developer.riotgames.com/docs/lol#game-client-api_root-certificate-ssl-errors
 	lcuClient := &http.Client{
 		Transport: &http.Transport{
@@ -169,7 +186,7 @@ func LcuCommunication() {
 	}
 
 	// Get current summoner
-	r, err := http.NewRequest("GET", fmt.Sprintf("https://%s/lol-summoner/v1/current-summoner", authInfo.Url), nil)
+	r, err := http.NewRequest("GET", "https://"+authInfo.Url+"/lol-summoner/v1/current-summoner", nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
 	}
@@ -179,8 +196,9 @@ func LcuCommunication() {
 	if err != nil {
 		log.Fatalf("Failed to send request: %v", err)
 	}
+	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		log.Fatalf("Failed to read response: %v", err)
 	}
@@ -191,8 +209,8 @@ func LcuCommunication() {
 	}
 
 	userInformation = UserInformation{
-		username: string(j.Get("displayName").GetStringBytes()),
-		iconId:   fmt.Sprint(j.Get("profileIconId").GetInt()),
+		Username: string(j.Get("displayName").GetStringBytes()),
+		IconId:   fmt.Sprint(j.Get("profileIconId").GetInt()),
 	}
 
 	// Emit the current summoner info to every client
@@ -211,12 +229,14 @@ func LcuCommunication() {
 	// basic authentication (riot:<password>) -> base64
 	b := base64.StdEncoding.EncodeToString([]byte("riot:" + authInfo.Authentication))
 	c, res, err := d.Dial(u.String(),
-		http.Header{"Authorization": []string{fmt.Sprintf("Basic %s", b)}})
+		http.Header{"Authorization": []string{"Basic " + b}})
+
+	defer res.Body.Close()
 
 	if err != nil {
 		log.Printf("Failed to dial: %v", err)
 		if res != nil {
-			body, err = ioutil.ReadAll(res.Body)
+			body, err = io.ReadAll(res.Body)
 			log.Println(string(body))
 			if err != nil {
 				log.Printf("%d: Failed to read response: %v", res.StatusCode, err)
@@ -250,8 +270,10 @@ func LcuCommunication() {
 		}
 
 		if string(j.Get("2").GetStringBytes("eventType")) == "Create" {
+			cid := j.Get("2").GetInt("data")
 			EmitEvent(CHAMPION_CHANGE, ChampionChange{
-				championId: fmt.Sprint((j.Get("2").GetInt("data"))),
+				ChampionId:   fmt.Sprint(cid),
+				ChampionName: championNames[uint16(cid)],
 			})
 		}
 	}
@@ -262,13 +284,14 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 	case USER_INFO:
 		return map[string]interface{}{
 			"type":     eventType,
-			"username": data.(UserInformation).username,
-			"iconId":   data.(UserInformation).iconId,
+			"username": data.(UserInformation).Username,
+			"iconId":   data.(UserInformation).IconId,
 		}, nil
 	case CHAMPION_CHANGE:
 		return map[string]interface{}{
-			"type":       eventType,
-			"championId": data.(ChampionChange).championId,
+			"type":         eventType,
+			"championId":   data.(ChampionChange).ChampionId,
+			"championName": data.(ChampionChange).ChampionName,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
@@ -287,7 +310,7 @@ func EmitEvent(eventType uint8, data interface{}) (err error) {
 }
 
 // assign this goroutine an unique id that will be used
-// to unsubsribe it from the LCU events.
+// to unsubscribe it from the LCU events.
 func Subscribe() (id uint8) {
 	var subId uint8
 	if len(subscribers) == 0 {
@@ -299,8 +322,11 @@ func Subscribe() (id uint8) {
 	return subId
 }
 
-func Unsubsribe(id uint8) {
+func Unsubscribe(id uint8) {
 	for i := 0; i < len(subscribers); i++ {
+		if subscribers[i] == id {
+			subscribers = append(subscribers[:i], subscribers[i+1:]...)
+		}
 		wsQueue <- id
 	}
 }
@@ -368,7 +394,7 @@ func RetrieveLeaguePath() string {
 // Search on the specified path for the lockfile and return its relevant part
 // - API URL and auth code.
 func WatchForLockfile(leaguePath string) AuthInformation {
-	lockfilePath := fmt.Sprintf("%s\\lockfile", leaguePath)
+	lockfilePath := leaguePath + "\\lockfile"
 
 	_, err := os.Stat(lockfilePath)
 
@@ -377,7 +403,7 @@ func WatchForLockfile(leaguePath string) AuthInformation {
 		time.Sleep(time.Second * 2) // Try again in 2 seconds.
 	}
 
-	content, err := ioutil.ReadFile(lockfilePath)
+	content, err := os.ReadFile(lockfilePath)
 
 	if err != nil {
 		log.Fatalf("Failed to read lockfile: %v", err)
@@ -387,7 +413,7 @@ func WatchForLockfile(leaguePath string) AuthInformation {
 	splitedLockfile := strings.Split(string(content), ":")
 
 	authInfo := AuthInformation{
-		Url:            fmt.Sprintf("127.0.0.1:%s", splitedLockfile[2]),
+		Url:            "127.0.0.1:" + splitedLockfile[2],
 		Authentication: splitedLockfile[3],
 	}
 
@@ -400,4 +426,62 @@ func SubscribeToLCUEvent(eventName string, c *websocket.Conn) {
 	if err != nil {
 		log.Printf("Failed to subscribe to event: %v", err)
 	}
+}
+
+// Get the most recent League of Legends version according to cdragon.
+func GetCurrentLeagueVersion() (version string, err error) {
+	res, err := http.Get(CDRAGON + "/content-metadata.json")
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	// read res as json
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	content, err := fastjson.ParseBytes(body)
+	if err != nil {
+		return "", err
+	}
+
+	// content.metadata returns versions formatted like "12.10.4442068+branch.releases-12-10.content.release"
+	// but u.gg accepts only versions formatted like "12_10"
+	splitedVersion := strings.Split(string(content.Get("version").GetStringBytes()), ".")
+	version = splitedVersion[0] + "_" + splitedVersion[1]
+	return version, nil
+}
+
+func GetUpdatedChampionNames() (championNames map[uint16]string, err error) {
+	res, err := http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json")
+	if err != nil {
+		return nil, err
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := fastjson.ParseBytes(body)
+	if err != nil {
+		return nil, err
+	}
+
+	champions, err := content.Array()
+	if err != nil {
+		return nil, err
+	}
+
+	var localChampionNames = map[uint16]string{}
+	for _, champion := range champions[1:] { // skip first champion (id of -1)
+		championName := champion.Get("name").GetStringBytes()
+		championId := uint16(champion.Get("id").GetUint())
+		localChampionNames[championId] = string(championName)
+	}
+
+	return localChampionNames, nil
 }
