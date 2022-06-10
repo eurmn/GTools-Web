@@ -1,8 +1,15 @@
 export let CDRAGON = 'https://raw.communitydragon.org/latest'
 
 export type ChampionInfo = {
-    id:   string,
-    name: string,
+    id:    string,
+    name:  string,
+    runes: number[],
+    role:  string
+}
+
+export type UserInfo = {
+    username: string,
+    iconId:   string,
 }
 
 export enum EventType {
@@ -18,4 +25,6 @@ export type Event = {
     type:         EventType.CHAMPION_CHANGE;
     championId:   string;
     championName: string;
+    runes:        number[];
+    role:         string;
 }

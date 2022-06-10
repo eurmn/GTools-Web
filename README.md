@@ -7,8 +7,13 @@ A lightweight League of Legends's rune importer with external access.
   - [ ] ~~Check League of Legend's most recent version and download newer resources automatically.~~ (discarted)
   - [X] Connect to the LCU websocket.
   - [X] Implement websocket connection pool.
-  - [x] Update the clients on the connection pool when a new change is observed on the LCU.
+  - [X] Update the clients on the connection pool when a new change is observed on the LCU.
   - [ ] Create the Frontend UI.
-  - [ ] Add rune importing from U.GG (and maybe other websites).
+  - [X] Add rune importing from ~~U.GG~~ blitz.gg.
   - [ ] Set log to logfile when not in debug mode.
   - [ ] Show tier list when not in champion selection.
+
+<br>
+
+### Riot Games: Third Party Applications
+https://support-leagueoflegends.riotgames.com/hc/en-us/articles/225266848

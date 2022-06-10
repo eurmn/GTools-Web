@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
@@ -13,10 +14,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unsafe"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/valyala/fastjson"
@@ -46,6 +50,8 @@ type UserInformation struct {
 type ChampionChange struct {
 	ChampionId   string
 	ChampionName string
+	Runes        []uint16
+	Role         string
 }
 
 var userInformation UserInformation
@@ -53,19 +59,20 @@ var upgrader = websocket.Upgrader{}
 var wsQueue chan interface{}
 var subscribers = []uint8{}
 var championNames = map[uint16]string{}
-var currentVersion string
+var authInfo AuthInformation
 
 func main() {
 	flag.Parse()
 
-	go LcuCommunication()
+	go func() {
+		for {
+			LcuCommunication()
+			// wait 10s to try a new connection with the LCU.
+			time.Sleep(time.Second * 10)
+		}
+	}()
 
 	var err error
-	currentVersion, err = GetCurrentLeagueVersion()
-	if err != nil {
-		log.Fatalf("Failed to get current League version: %v", err)
-	}
-
 	championNames, err = GetUpdatedChampionNames()
 	if err != nil {
 		log.Fatalf("Failed to get updated champion names: %v", err)
@@ -74,6 +81,7 @@ func main() {
 	wsQueue = make(chan interface{})
 
 	router := gin.New()
+	router.Use(cors.Default())
 
 	// if in debug mode, then serve only websocket server.
 	if *debug {
@@ -87,6 +95,129 @@ func main() {
 
 		// TODO: set log to log-file at %appdata% or %localappdata%
 	}
+
+	router.POST("/import-runes", func(c *gin.Context) {
+		defer c.Request.Body.Close()
+
+		// Read request body.
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			log.Printf("Failed to read request body: %v", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
+
+		bodyJson, err := fastjson.ParseBytes(body)
+		if err != nil {
+			log.Printf("Failed to parse request body: %v", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
+
+		runesJson := bodyJson.GetArray("runes")
+		championIdString := string(bodyJson.GetStringBytes("champion_id"))
+		role := string(bodyJson.GetStringBytes("role"))
+
+		championId, err := strconv.ParseUint(championIdString, 10, 16)
+		if err != nil {
+			log.Printf("Failed to parse champion id: %v", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		
+		runes := []uint16{}
+		for _, rune := range runesJson {
+			runes = append(runes, uint16(rune.GetInt()))
+		}
+
+		runeLCU := RuneArrayToObject(runes, uint16(championId), role)
+
+		// LCU uses a self-signed certificate, so we need to disable TLS verification.
+		// https://developer.riotgames.com/docs/lol#game-client-api_root-certificate-ssl-errors
+		lcuClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		}
+
+		r, err := http.NewRequest(http.MethodGet, "https://"+authInfo.Url+"/lol-perks/v1/pages", nil)
+		if err != nil {
+			log.Printf("Failed to create request: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		r.SetBasicAuth("riot", authInfo.Authentication)
+
+		res, err := lcuClient.Do(r)
+		if err != nil {
+			log.Printf("Failed to send request: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		defer res.Body.Close()
+		body, err = io.ReadAll(res.Body)
+		if err != nil {
+			log.Printf("Failed to read response body: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		bodyJson, err = fastjson.ParseBytes(body)
+		if err != nil {
+			log.Printf("Failed to parse response body: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		currentRuneId := -1
+		for _, page := range bodyJson.GetArray() {
+			log.Println(page.String())
+			if page.GetBool("isDeletable") {
+				currentRuneId = page.GetInt("id")
+				break
+			}
+		}
+
+		if currentRuneId != -1 {
+			r, err = http.NewRequest(http.MethodDelete, fmt.Sprintf("https://%s/lol-perks/v1/pages/%d", authInfo.Url, currentRuneId), nil)
+			r.SetBasicAuth("riot", authInfo.Authentication)
+			if err != nil {
+				log.Printf("Failed to create request: %v", err)
+				c.Status(http.StatusInternalServerError)
+				return
+			}
+
+			_, err = lcuClient.Do(r)
+			if err != nil {
+				log.Printf("Failed to send request: %v", err)
+				c.Status(http.StatusInternalServerError)
+				return
+			}
+		}
+		
+		runeBytes := runeLCU.MarshalTo(nil)
+
+		r, err = http.NewRequest(http.MethodPost, "https://"+authInfo.Url+"/lol-perks/v1/pages", bytes.NewBuffer(runeBytes))
+		r.SetBasicAuth("riot", authInfo.Authentication)
+
+		if err != nil {
+			log.Printf("Failed to create request: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		_, err = lcuClient.Do(r)
+		if err != nil {
+			log.Printf("Failed to send request: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		c.Status(http.StatusOK)
+	})
 
 	// lcu websocket endpoint
 	router.GET("/lcu", func(c *gin.Context) {
@@ -172,7 +303,7 @@ func LcuCommunication() {
 	leaguePath := RetrieveLeaguePath()
 	log.Printf("LeagueClientUX: %s", leaguePath)
 
-	authInfo := WatchForLockfile(leaguePath)
+	authInfo = WatchForLockfile(leaguePath)
 	log.Printf("%s", authInfo.Authentication)
 
 	// LCU uses a self-signed certificate, so we need to disable TLS verification.
@@ -186,15 +317,17 @@ func LcuCommunication() {
 	}
 
 	// Get current summoner
-	r, err := http.NewRequest("GET", "https://"+authInfo.Url+"/lol-summoner/v1/current-summoner", nil)
-	if err != nil {
-		log.Fatalf("Failed to create request: %v", err)
+	r, err := http.NewRequest(http.MethodGet, "https://"+authInfo.Url+"/lol-summoner/v1/current-summoner", nil)
+	for err != nil {
+		r, err = http.NewRequest(http.MethodGet, "https://"+authInfo.Url+"/lol-summoner/v1/current-summoner", nil)
+		log.Printf("Failed to create request: %v", err)
 	}
 	r.SetBasicAuth("riot", authInfo.Authentication)
 
 	res, err := lcuClient.Do(r)
-	if err != nil {
-		log.Fatalf("Failed to send request: %v", err)
+	for err != nil {
+		time.Sleep(time.Second * 2)
+		res, err = lcuClient.Do(r)
 	}
 	defer res.Body.Close()
 
@@ -203,19 +336,22 @@ func LcuCommunication() {
 		log.Fatalf("Failed to read response: %v", err)
 	}
 
-	j, err := fastjson.ParseBytes(body)
-	if err != nil {
-		log.Fatalf("Failed to parse response: %v", err)
-	}
+	// you are not logged in.
+	if res.StatusCode != 404 {
+		j, err := fastjson.ParseBytes(body)
+		if err != nil {
+			log.Fatalf("Failed to parse response: %v", err)
+		}
 
-	userInformation = UserInformation{
-		Username: string(j.Get("displayName").GetStringBytes()),
-		IconId:   fmt.Sprint(j.Get("profileIconId").GetInt()),
-	}
+		userInformation = UserInformation{
+			Username: string(j.Get("displayName").GetStringBytes()),
+			IconId:   fmt.Sprint(j.Get("profileIconId").GetInt()),
+		}
 
-	// Emit the current summoner info to every client
-	if err := EmitEvent(USER_INFO, userInformation); err != nil {
-		log.Println("Failed to emit event: ", err)
+		// Emit the current summoner info to every client
+		if err := EmitEvent(USER_INFO, userInformation); err != nil {
+			log.Println("Failed to emit event: ", err)
+		}
 	}
 
 	// LCU Websocket
@@ -236,7 +372,7 @@ func LcuCommunication() {
 	if err != nil {
 		log.Printf("Failed to dial: %v", err)
 		if res != nil {
-			body, err = io.ReadAll(res.Body)
+			body, err := io.ReadAll(res.Body)
 			log.Println(string(body))
 			if err != nil {
 				log.Printf("%d: Failed to read response: %v", res.StatusCode, err)
@@ -247,15 +383,21 @@ func LcuCommunication() {
 
 	defer c.Close()
 
-	// Subscribe to changes on the current champion
+	// Subscribe to changes on the current champion/summoner
 	SubscribeToLCUEvent("OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion", c)
+	SubscribeToLCUEvent("OnJsonApiEvent_lol-summoner_v1_current-summoner", c)
 
 	// Listen to the websocket
 	for {
-		_, message, err := c.ReadMessage()
+		mt, message, err := c.ReadMessage()
 		if err != nil {
 			log.Printf("Failed to read message: %v", err)
-			continue
+			return
+		}
+
+		if mt == websocket.CloseMessage {
+			log.Println("Websocket closed")
+			return
 		}
 
 		// The client sends an empty string when the websocket is first connected
@@ -269,12 +411,54 @@ func LcuCommunication() {
 			continue
 		}
 
-		if string(j.Get("2").GetStringBytes("eventType")) == "Create" {
-			cid := j.Get("2").GetInt("data")
-			EmitEvent(CHAMPION_CHANGE, ChampionChange{
-				ChampionId:   fmt.Sprint(cid),
-				ChampionName: championNames[uint16(cid)],
-			})
+		switch string(j.GetStringBytes("1")) {
+		case "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion":
+			if string(j.Get("2").GetStringBytes("eventType")) == "Create" {
+				cid := uint16(j.Get("2").GetInt("data"))
+
+				// Get runes
+				runes, err := GetRunesForChampion(cid)
+				if err != nil {
+					log.Printf("Failed to get runes: %v", err)
+					continue
+				}
+
+				role, err := GetPrimaryRoleForChampion(cid)
+				if err != nil {
+					log.Printf("Failed to get primary role: %v", err)
+					continue
+				}
+				
+				EmitEvent(CHAMPION_CHANGE, ChampionChange{
+					ChampionId:   fmt.Sprint(cid),
+					ChampionName: championNames[cid],
+					Runes:        runes,
+					Role:         role,
+				})
+			}
+		case "OnJsonApiEvent_lol-summoner_v1_current-summoner":
+			if string(j.Get("2").GetStringBytes("uri")) != "/lol-summoner/v1/current-summoner" {
+				continue
+			}
+
+			data := j.Get("2").Get("data")
+
+			if string(data.GetStringBytes("eventType")) == "Delete" {
+				userInformation = UserInformation{
+					Username: "",
+					IconId:   "",
+				}
+			} else {
+				userInformation = UserInformation{
+					Username: string(j.Get("2").Get("data").Get("displayName").GetStringBytes()),
+					IconId:   fmt.Sprint(j.Get("2").Get("data").Get("profileIconId").GetInt()),
+				}
+			}
+
+			// Emit the current summoner info to every client
+			if err := EmitEvent(USER_INFO, userInformation); err != nil {
+				log.Println("Failed to emit event: ", err)
+			}
 		}
 	}
 }
@@ -292,6 +476,7 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 			"type":         eventType,
 			"championId":   data.(ChampionChange).ChampionId,
 			"championName": data.(ChampionChange).ChampionName,
+			"runes":        data.(ChampionChange).Runes,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
@@ -428,32 +613,6 @@ func SubscribeToLCUEvent(eventName string, c *websocket.Conn) {
 	}
 }
 
-// Get the most recent League of Legends version according to cdragon.
-func GetCurrentLeagueVersion() (version string, err error) {
-	res, err := http.Get(CDRAGON + "/content-metadata.json")
-	if err != nil {
-		return "", err
-	}
-	defer res.Body.Close()
-
-	// read res as json
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", err
-	}
-
-	content, err := fastjson.ParseBytes(body)
-	if err != nil {
-		return "", err
-	}
-
-	// content.metadata returns versions formatted like "12.10.4442068+branch.releases-12-10.content.release"
-	// but u.gg accepts only versions formatted like "12_10"
-	splitedVersion := strings.Split(string(content.Get("version").GetStringBytes()), ".")
-	version = splitedVersion[0] + "_" + splitedVersion[1]
-	return version, nil
-}
-
 func GetUpdatedChampionNames() (championNames map[uint16]string, err error) {
 	res, err := http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json")
 	if err != nil {
@@ -484,4 +643,147 @@ func GetUpdatedChampionNames() (championNames map[uint16]string, err error) {
 	}
 
 	return localChampionNames, nil
+}
+
+func BlitzGGUrlForChampion(championId uint16, role string, queue string) string {
+	// this url was extracted from the network tab at champion.gg, it was probably
+	// not made for public use, so it can die at any moment (making the code break D:).
+	return "https://league-champion-aggregate.iesdev.com/graphql?query=query%20" +
+		url.QueryEscape(
+			"ChampionBuilds($championId:Int!, $queue:Queue!, $role:Role, $opponentChampionId:Int, $key:ChampionBuildKey) {"+
+				"championBuildStats("+
+				"championId:$championId, queue:$queue, role:$role, opponentChampionId:$opponentChampionId, key:$key) {"+
+				"championId opponentChampionId queue role builds { "+
+				"completedItems {"+
+				"games index averageIndex itemId wins"+
+				"} games mythicId mythicAverageIndex primaryRune runes {"+
+				"games index runeId wins treeId"+
+				"} skillOrders {"+
+				"games skillOrder wins"+
+				"} startingItems {"+
+				"games startingItemIds wins"+
+				"} summonerSpells {"+
+				"games summonerSpellIds wins"+
+				"} wins}}}",
+		) + "&variables=" +
+		url.QueryEscape(fmt.Sprintf(
+			`{"championId": %d, "role": "%s", "queue": "%s", "opponentChampionId": null, "key": "PUBLIC"}`,
+			championId, role, queue,
+		))
+}
+
+// Get primary role for champion (MID | TOP | SUPPORT | JUNGLE | ADC)
+func GetPrimaryRoleForChampion(championId uint16) (role string, err error) {
+	url := "https://league-champion-aggregate.iesdev.com/graphql?query=query%20" +
+		url.QueryEscape("ChampionMainRole($championId:ID){primaryRole(championId:$championId)}") +
+		"&variables=" + url.QueryEscape(fmt.Sprintf(`{"championId": %d}`, championId))
+
+	res, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	content, err := fastjson.ParseBytes(body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(content.Get("data").GetStringBytes("primaryRole")), nil
+}
+
+func GetRunesForChampion(championId uint16) (runes []uint16, err error) {
+	role, err := GetPrimaryRoleForChampion(championId)
+	if err != nil {
+		return nil, err
+	}
+
+	url := BlitzGGUrlForChampion(championId, role, "RANKED_SOLO_5X5")
+	res, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := fastjson.ParseBytes(body)
+	if err != nil {
+		return nil, err
+	}
+
+	builds := content.Get("data").Get("championBuildStats").GetArray("builds")
+	sort.SliceStable(builds, func(i, j int) bool {
+		// sort by popularity
+		return builds[i].GetInt("games") > builds[j].GetInt("games")
+		// or by win-rate:
+		// return builds[i].GetInt("wins")/builds[i].GetInt("games") > builds[j].GetInt("wins")/builds[j].GetInt("games")
+	})
+
+	selectedBuild := builds[0]
+	selectedRunes := selectedBuild.GetArray("runes")
+
+	var primaryStyleId uint16
+	var secondaryStyleId uint16
+
+	finalRunes := []uint16{}
+	for i := 0; i < 8; i++ {
+		currentIndex := []*fastjson.Value{}
+		for _, run := range selectedRunes {
+			if run.GetInt("index") == i {
+				currentIndex = append(currentIndex, run)
+			}
+		}
+
+		sort.SliceStable(currentIndex, func(i, j int) bool {
+			// sort by popularity
+			return currentIndex[i].GetInt("games") > currentIndex[j].GetInt("games")
+			// or by win-rate:
+			// return currentIndex[i].GetInt("wins")/currentIndex[i].GetInt("games") > currentIndex[j].GetInt("wins")/currentIndex[j].GetInt("games")
+		})
+
+		if i == 0 {
+			primaryStyleId = uint16(currentIndex[0].GetInt("treeId"))
+		} else if i == 3 {
+			secondaryStyleId = uint16(currentIndex[0].GetInt("treeId"))
+		}
+
+		finalRunes = append(finalRunes, uint16(currentIndex[0].GetInt("runeId")))
+	}
+
+	primaryRune := uint16(selectedBuild.GetInt("primaryRune"))
+
+	// append primary and secondary style runes at THE BEGGINING of finalRunes
+	finalRunes = append([]uint16{primaryStyleId, secondaryStyleId, primaryRune}, finalRunes...)
+
+	return finalRunes, nil
+}
+
+func RuneArrayToObject(runes []uint16, championId uint16, role string) (runesObject *fastjson.Value) {
+	a := fastjson.Arena{}
+
+	r := a.NewObject()
+	r.Set("name", a.NewString("[eLoL] " + championNames[championId] + " " + role))
+	r.Set("primaryStyleId", a.NewNumberInt(int(runes[0])))
+	r.Set("subStyleId", a.NewNumberInt(int(runes[1])))
+
+	// remove the first two runes from runes
+	runes = runes[2:]
+	runeArray := a.NewArray()
+	for i := 0; i < len(runes); i++ {
+		runeArray.Set(fmt.Sprint(i), a.NewNumberInt(int(runes[i])))
+	}
+
+	r.Set("selectedPerkIds", runeArray)
+	r.Set("current", a.NewTrue())
+
+	return r
 }
