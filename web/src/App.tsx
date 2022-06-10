@@ -1,6 +1,8 @@
-import { Component, createSignal, Show } from 'solid-js';
+import { Component, createSignal, For, Show } from 'solid-js';
+import RuneComponent from './components/RuneComponent';
+import StatComponent from './components/StatComponent';
 
-import { CDRAGON, Event, EventType, ChampionInfo, UserInfo } from './types/Events'
+import { CDRAGON, Event, EventType, ChampionInfo, UserInfo, Rune } from './types/types'
 
 function iconURL(iconId: string): string {
     return `${CDRAGON}/plugins/rcp-be-lol-game-data/global/default/v1/profile-icons/${iconId}.jpg`;
@@ -10,11 +12,12 @@ function championTileURL(championId: string): string {
     return `${CDRAGON}/plugins/rcp-be-lol-game-data/global/default/v1/champion-tiles/${championId}/${championId}000.jpg`;
 }
 
-function importRunes(runes: number[], champion_id: string, role: string) {
+function importRunes(runes: Rune[], champion_id: string, role: string) {
+    let ids = runes.map(rune => rune.Id)
     fetch('http://' + location.hostname + ':4246/import-runes', {
         method: 'POST',
         body: JSON.stringify({
-            runes,
+            runes: ids,
             champion_id,
             role
         }),
@@ -42,11 +45,12 @@ const App: Component = () => {
                 break;
             case EventType.CHAMPION_CHANGE:
                 setCurrentChampion({
-                    id:    data.championId,
-                    name:  data.championName,
-                    runes: data.runes,
-                    role:  data.role
+                    id:         data.id,
+                    name:       data.name,
+                    runes:      data.runes,
+                    role:       data.role
                 });
+                
                 break;
         }
     };
@@ -58,8 +62,14 @@ const App: Component = () => {
         });
     }
 
+    /* fetch('http://' + location.hostname + ':4246/sample-build').then(res => {
+        res.json().then(data => {
+            setCurrentChampion(data)
+        });
+    }).catch(console.log); */
+
     return (
-        <div class="h-full w-full bg-slate-900 text-white py-4 px-4 md:px-24 lg:px-72 font-inter">
+        <div class="h-full bg-slate-900 text-white py-4 px-4 font-inter flex flex-col">
             <Show when={userInfo()} fallback={
                 <div class="text-5xl text-center">Waiting for League Client to Open...</div>
             }>
@@ -71,23 +81,45 @@ const App: Component = () => {
                         <span>{userInfo()!.username}</span>
                     </span>
                 </div>
-                <Show when={currentChampion()}>
+            </Show>
+            <Show when={currentChampion()}>
+                <div class="h-full flex flex-col justify-center items-center text-gray-200">
                     <div class="flex items-center justify-center text-5xl">
                         <span class="bg-slate-600 h-[1.5em] w-[1.5em] relative rounded-full mx-4">
                             <img src={championTileURL(currentChampion()!.id)} alt={`${currentChampion()!.name} icon`}
                                 class="text-center h-[1.4em] w-[1.4em] rounded-full absolute top-1/2 left-1/2
-                                    -translate-x-1/2 -translate-y-1/2" />
+                                        -translate-x-1/2 -translate-y-1/2" />
                         </span>
-                        <span class="font-extrabold">{currentChampion()!.name}</span>
+                        <span class="font-extrabold text-center">{currentChampion()!.name}</span>
                     </div>
-                    <div class="flex items-center justify-center mt-5">
+                    <div class="flex justify-center flex-wrap max-h-1/2">
+                        <span class="p-2 flex flex-col w-1/4 min-w-full md:min-w-min">
+                            <img src={currentChampion()!.runes[0].Asset} alt="" class="w-5 h-5 mt-5 mx-auto inline" />
+                            <RuneComponent rune={currentChampion()!.runes[2]} background={false} bigger={true} treeId={currentChampion()!.runes[0].Id} />
+                            <For each={currentChampion()!.runes.slice(3, 6)}>
+                                {(rune) => <RuneComponent rune={rune} treeId={currentChampion()!.runes[0].Id} />}
+                            </For>
+                        </span>
+                        <span class="p-2 flex flex-col w-1/4 min-w-full md:min-w-min">
+                            <img src={currentChampion()!.runes[1].Asset} alt="" class="w-5 h-5 mt-5 mx-auto inline" />
+                            <For each={currentChampion()!.runes.slice(6, 8)}>
+                                {(rune) => <RuneComponent rune={rune} treeId={currentChampion()!.runes[1].Id} />}
+                            </For>
+                            <span class="flex justify-evenly w-1/4 mx-auto">
+                                <For each={currentChampion()!.runes.slice(8)}>
+                                    {(rune) => <StatComponent rune={rune} /> }
+                                </For>
+                            </span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-center mt-5 w-full">
                         <span class="py-2 px-5 bg-indigo-700 rounded-md shadow shadow-black/20 hover:cursor-pointer
-                            transition-colors hover:bg-indigo-800 duration-50 font-bold leading-loose"
+                                transition-all hover:bg-indigo-800 duration-50 font-bold leading-loose active:scale-95"
                             onClick={() => importRunes(currentChampion()!.runes, currentChampion()!.id, currentChampion()!.role)}>
                             Import Runes
                         </span>
                     </div>
-                </Show>
+                </div>
             </Show>
         </div>
     );

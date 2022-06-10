@@ -23,6 +23,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/valyala/fastjson"
 	"golang.org/x/sys/windows"
 )
@@ -50,8 +51,19 @@ type UserInformation struct {
 type ChampionChange struct {
 	ChampionId   string
 	ChampionName string
-	Runes        []uint16
+	Runes        []Rune
 	Role         string
+}
+
+type RuneInfo struct {
+	Name        string
+	Description string
+}
+
+type Rune struct {
+	Id    uint16
+	Asset string
+	Info  RuneInfo
 }
 
 var userInformation UserInformation
@@ -59,7 +71,9 @@ var upgrader = websocket.Upgrader{}
 var wsQueue chan interface{}
 var subscribers = []uint8{}
 var championNames = map[uint16]string{}
+var runeInfo = map[uint16]Rune{}
 var authInfo AuthInformation
+var p *bluemonday.Policy = bluemonday.StripTagsPolicy()
 
 func main() {
 	flag.Parse()
@@ -76,6 +90,11 @@ func main() {
 	championNames, err = GetUpdatedChampionNames()
 	if err != nil {
 		log.Fatalf("Failed to get updated champion names: %v", err)
+	}
+
+	runeInfo, err = GetUpdatedRuneAssets()
+	if err != nil {
+		log.Fatalf("Failed to get updated rune asset paths: %v", err)
 	}
 
 	wsQueue = make(chan interface{})
@@ -95,6 +114,104 @@ func main() {
 
 		// TODO: set log to log-file at %appdata% or %localappdata%
 	}
+
+	router.GET("/sample-build", func(c *gin.Context) {
+		c.JSON(http.StatusOK, map[string]interface{}{
+			"id": 136,
+			"name": "Aurelion Sol",
+			"role": "MID",
+			"runes": []map[string]interface{}{
+				{
+					"Id": "8100",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7200_domination.png",
+					"Info": map[string]string{
+						"Name": "Domination",
+						"Description": "",
+					},
+				},
+				{
+					"Id": "8300",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7203_whimsy.png",
+					"Info": map[string]string{
+						"Name": "Inspiration",
+						"Description": "",
+					},
+				},
+				{
+					"Id": "8112",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/electrocute/electrocute.png",
+					"Info": map[string]string{
+						"Name": "Eletrocute",
+						"Description": "Hitting a champion with 3 separate attacks or abilities in 3s deals bonus adaptive damage.",
+					},
+				},
+				{
+					"Id": "8139",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/tasteofblood/greenterror_tasteofblood.png",
+					"Info": map[string]string{
+						"Name": "Taste of Blood",
+						"Description": "Heal when you damage an enemy champion.",
+					},
+				},
+				{
+					"Id": "8138",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/eyeballcollection/eyeballcollection.png",
+					"Info": map[string]string{
+						"Name": "Eyeball Collection",
+						"Description": "Collect eyeballs for champion takedowns. Gain permanent AD or AP, adaptive for each eyeball plus bonus upon collection completion.",
+					},
+				},
+				{
+					"Id": "8105",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/relentlesshunter/relentlesshunter.png",
+					"Info": map[string]string{
+						"Name": "Relentless Hunter",
+						"Description": "Unique takedowns grant permanent out of combat MS. ",
+					},
+				},
+				{
+					"Id": "8345",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/inspiration/biscuitdelivery/biscuitdelivery.png",
+					"Info": map[string]string{
+						"Name": "Biscuit Delivery",
+						"Description": "Gain a free Biscuit every 2 min, until 6 min. Consuming or selling a Biscuit permanently increases your max mana and restores health and mana.",
+					},
+				},
+				{
+					"Id": "8352",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/inspiration/timewarptonic/timewarptonic.png",
+					"Info": map[string]string{
+						"Name": "Time Warp Tonic",
+						"Description": "Potions and biscuits grant some restoration immediately. Gain MS  while under their effects.",
+					},
+				},
+				{
+					"Id": "5005",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsattackspeedicon.png",
+					"Info": map[string]string{
+						"Name": "",
+						"Description": "",
+					},
+				},
+				{
+					"Id": "5008",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsadaptiveforceicon.png",
+					"Info": map[string]string{
+						"Name": "",
+						"Description": "",
+					},
+				},
+				{
+					"Id": "5003",
+					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsmagicresicon.magicresist_fix.png",
+					"Info": map[string]string{
+						"Name": "",
+						"Description": "",
+					},
+				},
+			},
+		})
+	})
 
 	router.POST("/import-runes", func(c *gin.Context) {
 		defer c.Request.Body.Close()
@@ -124,10 +241,10 @@ func main() {
 			c.Status(http.StatusBadRequest)
 			return
 		}
-		
+
 		runes := []uint16{}
-		for _, rune := range runesJson {
-			runes = append(runes, uint16(rune.GetInt()))
+		for _, run := range runesJson {
+			runes = append(runes, uint16(run.GetInt()))
 		}
 
 		runeLCU := RuneArrayToObject(runes, uint16(championId), role)
@@ -197,7 +314,7 @@ func main() {
 				return
 			}
 		}
-		
+
 		runeBytes := runeLCU.MarshalTo(nil)
 
 		r, err = http.NewRequest(http.MethodPost, "https://"+authInfo.Url+"/lol-perks/v1/pages", bytes.NewBuffer(runeBytes))
@@ -286,6 +403,7 @@ func main() {
 
 				if err != nil {
 					log.Println("write:", err)
+					w.Close()
 					return
 				}
 			}
@@ -385,6 +503,7 @@ func LcuCommunication() {
 
 	// Subscribe to changes on the current champion/summoner
 	SubscribeToLCUEvent("OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion", c)
+	SubscribeToLCUEvent("OnJsonApiEvent_lol-champ-select_v1_current-champion", c)
 	SubscribeToLCUEvent("OnJsonApiEvent_lol-summoner_v1_current-summoner", c)
 
 	// Listen to the websocket
@@ -412,7 +531,7 @@ func LcuCommunication() {
 		}
 
 		switch string(j.GetStringBytes("1")) {
-		case "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion":
+		case "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion", "OnJsonApiEvent_lol-champ-select_v1_current-champion":
 			if string(j.Get("2").GetStringBytes("eventType")) == "Create" {
 				cid := uint16(j.Get("2").GetInt("data"))
 
@@ -428,11 +547,16 @@ func LcuCommunication() {
 					log.Printf("Failed to get primary role: %v", err)
 					continue
 				}
-				
+
+				assets := []Rune{}
+				for _, run := range runes {
+					assets = append(assets, runeInfo[run])
+				}
+
 				EmitEvent(CHAMPION_CHANGE, ChampionChange{
 					ChampionId:   fmt.Sprint(cid),
 					ChampionName: championNames[cid],
-					Runes:        runes,
+					Runes:        assets,
 					Role:         role,
 				})
 			}
@@ -458,11 +582,12 @@ func LcuCommunication() {
 			// Emit the current summoner info to every client
 			if err := EmitEvent(USER_INFO, userInformation); err != nil {
 				log.Println("Failed to emit event: ", err)
-			}
+			}			
 		}
 	}
 }
 
+// Build the WS Message used by EmitEvent.
 func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interface{}, err error) {
 	switch eventType {
 	case USER_INFO:
@@ -473,16 +598,18 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 		}, nil
 	case CHAMPION_CHANGE:
 		return map[string]interface{}{
-			"type":         eventType,
-			"championId":   data.(ChampionChange).ChampionId,
-			"championName": data.(ChampionChange).ChampionName,
-			"runes":        data.(ChampionChange).Runes,
+			"type":  eventType,
+			"id":    data.(ChampionChange).ChampionId,
+			"name":  data.(ChampionChange).ChampionName,
+			"role":  data.(ChampionChange).Role,
+			"runes": data.(ChampionChange).Runes,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
 	}
 }
 
+// Emit event to all connected clients.
 func EmitEvent(eventType uint8, data interface{}) (err error) {
 	msg, err := CreateWSMessage(eventType, data)
 	if err != nil {
@@ -495,7 +622,7 @@ func EmitEvent(eventType uint8, data interface{}) (err error) {
 }
 
 // assign this goroutine an unique id that will be used
-// to unsubscribe it from the LCU events.
+// to unsubscribe it from the wsQueue.
 func Subscribe() (id uint8) {
 	var subId uint8
 	if len(subscribers) == 0 {
@@ -507,6 +634,7 @@ func Subscribe() (id uint8) {
 	return subId
 }
 
+// Unsubscribe the goroutine id from the wsQueue.
 func Unsubscribe(id uint8) {
 	for i := 0; i < len(subscribers); i++ {
 		if subscribers[i] == id {
@@ -605,6 +733,7 @@ func WatchForLockfile(leaguePath string) AuthInformation {
 	return authInfo
 }
 
+// Subscribe to the LCU event.
 func SubscribeToLCUEvent(eventName string, c *websocket.Conn) {
 	// https://hextechdocs.dev/getting-started-with-the-lcu-websocket#subscribing-to-events
 	err := c.WriteJSON([]interface{}{5, eventName})
@@ -613,6 +742,7 @@ func SubscribeToLCUEvent(eventName string, c *websocket.Conn) {
 	}
 }
 
+// Update the map of champion id -> champion name.
 func GetUpdatedChampionNames() (championNames map[uint16]string, err error) {
 	res, err := http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json")
 	if err != nil {
@@ -645,6 +775,84 @@ func GetUpdatedChampionNames() (championNames map[uint16]string, err error) {
 	return localChampionNames, nil
 }
 
+// Get the icon path for every rune.
+func GetUpdatedRuneAssets() (runeAssetPaths map[uint16]Rune, err error) {
+	res, err := http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/perkstyles.json")
+	if err != nil {
+		return nil, err
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err := fastjson.ParseBytes(body)
+	if err != nil {
+		return nil, err
+	}
+
+	runes := map[uint16]Rune{}
+	for _, run := range content.GetArray("styles") {
+		runeId := run.Get("id").GetUint()
+		runePath := string(run.GetStringBytes("iconPath"))
+		runePath = CDRAGON +
+			strings.ToLower(
+				strings.Replace(string(runePath), "/lol-game-data/assets/v1/", "/plugins/rcp-be-lol-game-data/global/default/v1/", 1),
+			)
+		runeName := run.GetStringBytes("name")
+
+		runes[uint16(runeId)] = Rune{
+			Id:    uint16(runeId),
+			Asset: string(runePath),
+			Info:  RuneInfo{
+				Name:        string(runeName),
+				Description: "",
+			},
+		}
+	}
+
+	res, err = http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/perks.json")
+	if err != nil {
+		return nil, err
+	}
+
+	defer res.Body.Close()
+	body, err = io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	content, err = fastjson.ParseBytes(body)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, run := range content.GetArray() {
+		runeId := run.Get("id").GetUint()
+		runePath := string(run.GetStringBytes("iconPath"))
+		runePath = CDRAGON +
+			strings.ToLower(
+				strings.Replace(string(runePath), "/lol-game-data/assets/v1/", "/plugins/rcp-be-lol-game-data/global/default/v1/", 1),
+			)
+		runeName := run.GetStringBytes("name")
+		runeDescription := p.Sanitize(string(run.GetStringBytes("shortDesc")))
+
+		runes[uint16(runeId)] = Rune{
+			Id:    uint16(runeId),
+			Asset: string(runePath),
+			Info:  RuneInfo{
+				Name:        string(runeName),
+				Description: runeDescription,
+			},
+		}
+	}
+
+	return runes, nil
+}
+
+// Get the URL (from champion.gg/blitz.gg) used to get info about the champion.
 func BlitzGGUrlForChampion(championId uint16, role string, queue string) string {
 	// this url was extracted from the network tab at champion.gg, it was probably
 	// not made for public use, so it can die at any moment (making the code break D:).
@@ -697,6 +905,7 @@ func GetPrimaryRoleForChampion(championId uint16) (role string, err error) {
 	return string(content.Get("data").GetStringBytes("primaryRole")), nil
 }
 
+// Return the runes for the selected champion.
 func GetRunesForChampion(championId uint16) (runes []uint16, err error) {
 	role, err := GetPrimaryRoleForChampion(championId)
 	if err != nil {
@@ -767,11 +976,13 @@ func GetRunesForChampion(championId uint16) (runes []uint16, err error) {
 	return finalRunes, nil
 }
 
+// Returns an object accepted by the /lol-perks/v1/perks LCU endpoint.
 func RuneArrayToObject(runes []uint16, championId uint16, role string) (runesObject *fastjson.Value) {
 	a := fastjson.Arena{}
 
 	r := a.NewObject()
-	r.Set("name", a.NewString("[eLoL] " + championNames[championId] + " " + role))
+
+	r.Set("name", a.NewString("[eLoL] "+championNames[championId]+" "+role))
 	r.Set("primaryStyleId", a.NewNumberInt(int(runes[0])))
 	r.Set("subStyleId", a.NewNumberInt(int(runes[1])))
 

@@ -12,6 +12,8 @@ A lightweight League of Legends's rune importer with external access.
   - [X] Add rune importing from ~~U.GG~~ blitz.gg.
   - [ ] Set log to logfile when not in debug mode.
   - [ ] Show tier list when not in champion selection.
+  - [ ] Show item build.
+  - [ ] Show build even when connected after the game has started.
 
 <br>
 

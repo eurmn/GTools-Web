@@ -6,5 +6,12 @@
         {
             "path": "web"
         }
-    ]
+    ],
+    "settings": {
+        "workbench.colorCustomizations": {
+            "activityBar.background": "#610125",
+            "titleBar.activeBackground": "#870134",
+            "titleBar.activeForeground": "#FFFBFD"
+        }
+    }
 }
