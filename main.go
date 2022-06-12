@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -117,95 +118,95 @@ func main() {
 
 	router.GET("/sample-build", func(c *gin.Context) {
 		c.JSON(http.StatusOK, map[string]interface{}{
-			"id": 136,
+			"id":   136,
 			"name": "Aurelion Sol",
 			"role": "MID",
 			"runes": []map[string]interface{}{
 				{
-					"Id": "8100",
+					"Id":    8100,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7200_domination.png",
 					"Info": map[string]string{
-						"Name": "Domination",
+						"Name":        "Domination",
 						"Description": "",
 					},
 				},
 				{
-					"Id": "8300",
+					"Id":    8300,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7203_whimsy.png",
 					"Info": map[string]string{
-						"Name": "Inspiration",
+						"Name":        "Inspiration",
 						"Description": "",
 					},
 				},
 				{
-					"Id": "8112",
+					"Id":    8112,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/electrocute/electrocute.png",
 					"Info": map[string]string{
-						"Name": "Eletrocute",
+						"Name":        "Eletrocute",
 						"Description": "Hitting a champion with 3 separate attacks or abilities in 3s deals bonus adaptive damage.",
 					},
 				},
 				{
-					"Id": "8139",
+					"Id":    8139,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/tasteofblood/greenterror_tasteofblood.png",
 					"Info": map[string]string{
-						"Name": "Taste of Blood",
+						"Name":        "Taste of Blood",
 						"Description": "Heal when you damage an enemy champion.",
 					},
 				},
 				{
-					"Id": "8138",
+					"Id":    8138,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/eyeballcollection/eyeballcollection.png",
 					"Info": map[string]string{
-						"Name": "Eyeball Collection",
+						"Name":        "Eyeball Collection",
 						"Description": "Collect eyeballs for champion takedowns. Gain permanent AD or AP, adaptive for each eyeball plus bonus upon collection completion.",
 					},
 				},
 				{
-					"Id": "8105",
+					"Id":    8105,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/relentlesshunter/relentlesshunter.png",
 					"Info": map[string]string{
-						"Name": "Relentless Hunter",
+						"Name":        "Relentless Hunter",
 						"Description": "Unique takedowns grant permanent out of combat MS. ",
 					},
 				},
 				{
-					"Id": "8345",
+					"Id":    8345,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/inspiration/biscuitdelivery/biscuitdelivery.png",
 					"Info": map[string]string{
-						"Name": "Biscuit Delivery",
+						"Name":        "Biscuit Delivery",
 						"Description": "Gain a free Biscuit every 2 min, until 6 min. Consuming or selling a Biscuit permanently increases your max mana and restores health and mana.",
 					},
 				},
 				{
-					"Id": "8352",
+					"Id":    8352,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/inspiration/timewarptonic/timewarptonic.png",
 					"Info": map[string]string{
-						"Name": "Time Warp Tonic",
+						"Name":        "Time Warp Tonic",
 						"Description": "Potions and biscuits grant some restoration immediately. Gain MS  while under their effects.",
 					},
 				},
 				{
-					"Id": "5005",
+					"Id":    5005,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsattackspeedicon.png",
 					"Info": map[string]string{
-						"Name": "",
+						"Name":        "",
 						"Description": "",
 					},
 				},
 				{
-					"Id": "5008",
+					"Id":    5008,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsadaptiveforceicon.png",
 					"Info": map[string]string{
-						"Name": "",
+						"Name":        "",
 						"Description": "",
 					},
 				},
 				{
-					"Id": "5003",
+					"Id":    5003,
 					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsmagicresicon.magicresist_fix.png",
 					"Info": map[string]string{
-						"Name": "",
+						"Name":        "",
 						"Description": "",
 					},
 				},
@@ -291,7 +292,6 @@ func main() {
 
 		currentRuneId := -1
 		for _, page := range bodyJson.GetArray() {
-			log.Println(page.String())
 			if page.GetBool("isDeletable") {
 				currentRuneId = page.GetInt("id")
 				break
@@ -404,6 +404,7 @@ func main() {
 				if err != nil {
 					log.Println("write:", err)
 					w.Close()
+					w.CloseHandler()
 					return
 				}
 			}
@@ -582,7 +583,7 @@ func LcuCommunication() {
 			// Emit the current summoner info to every client
 			if err := EmitEvent(USER_INFO, userInformation); err != nil {
 				log.Println("Failed to emit event: ", err)
-			}			
+			}
 		}
 	}
 }
@@ -806,7 +807,7 @@ func GetUpdatedRuneAssets() (runeAssetPaths map[uint16]Rune, err error) {
 		runes[uint16(runeId)] = Rune{
 			Id:    uint16(runeId),
 			Asset: string(runePath),
-			Info:  RuneInfo{
+			Info: RuneInfo{
 				Name:        string(runeName),
 				Description: "",
 			},
@@ -838,11 +839,12 @@ func GetUpdatedRuneAssets() (runeAssetPaths map[uint16]Rune, err error) {
 			)
 		runeName := run.GetStringBytes("name")
 		runeDescription := p.Sanitize(string(run.GetStringBytes("shortDesc")))
+		runeDescription = html.UnescapeString(runeDescription)
 
 		runes[uint16(runeId)] = Rune{
 			Id:    uint16(runeId),
 			Asset: string(runePath),
-			Info:  RuneInfo{
+			Info: RuneInfo{
 				Name:        string(runeName),
 				Description: runeDescription,
 			},

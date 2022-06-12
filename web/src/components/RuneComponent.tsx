@@ -1,9 +1,8 @@
+import { classList } from "solid-js/web";
 import { Rune } from "../types/types";
 
 function RuneComponent({ rune, bigger = false, treeId, background = true }:
     { rune: Rune, treeId?: number, bigger?: boolean, background?: boolean }) {
-
-    console.log(treeId)
 
     let color: string;
     switch (treeId) {
@@ -28,12 +27,12 @@ function RuneComponent({ rune, bigger = false, treeId, background = true }:
     }
 
     return (
-        <span class="flex my-5 overflow-hidden text-ellipsis">
+        <span class={`flex my-2 items-center`}>
             <span class={`aspect-square ${bigger ? 'h-20 w-20' : 'h-10 w-10'} my-2 rounded-full flex items-center justify-center`}
                 style={background ? `background: ${color}` : ''}>
-                <img src={rune.Asset} class={`inline ${bigger ? 'h-18 w-18' : 'h-9 w-9'} aspect-square`}></img>
+                <img src={rune.Asset} class={`inline ${bigger ? 'h-18 w-18 -translate-x-5' : 'h-9 w-9'} aspect-square`}></img>
             </span>
-            <span class="px-5">
+            <span class={`ml-5 ${bigger ? '-translate-x-10' : ''}`}>
                 <div style={`color: ${color}`}>{rune.Info.Name}</div>
                 <div class="text-xs text-gray-300">{rune.Info.Description}</div>
             </span>
