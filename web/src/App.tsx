@@ -1,31 +1,10 @@
 import { Component, createSignal, For, Show } from 'solid-js';
-import RuneComponent from './components/RuneComponent';
-import StatComponent from './components/StatComponent';
+import RunePageComponent from './components/RunePageComponent';
 
 import { CDRAGON, Event, EventType, ChampionInfo, UserInfo, Rune } from './types/types'
 
 function iconURL(iconId: string): string {
     return `${CDRAGON}/plugins/rcp-be-lol-game-data/global/default/v1/profile-icons/${iconId}.jpg`;
-}
-
-function championTileURL(championId: string): string {
-    return `${CDRAGON}/plugins/rcp-be-lol-game-data/global/default/v1/champion-tiles/${championId}/${championId}000.jpg`;
-}
-
-function importRunes(runes: Rune[], champion_id: string, role: string) {
-    let ids = runes.map(rune => rune.Id)
-    fetch('http://' + location.hostname + ':4246/import-runes', {
-        method: 'POST',
-        body: JSON.stringify({
-            runes: ids,
-            champion_id,
-            role
-        }),
-    }).then(res => {
-        console.log(res);
-    }).catch(err => {
-        console.log(err);
-    })
 }
 
 const App: Component = () => {
@@ -45,11 +24,12 @@ const App: Component = () => {
                 break;
             case EventType.CHAMPION_CHANGE:
                 setCurrentChampion({
-                    id:         data.id,
-                    name:       data.name,
-                    runes:      data.runes,
-                    role:       data.role
-                });
+                    id:                data.id,
+                    name:              data.name,
+                    runesByPopularity: data.runesByPopularity,
+                    runesByWinRate:    data.runesByWinRate,
+                    role:              data.role
+                } as ChampionInfo);
                 
                 break;
         }
@@ -64,17 +44,23 @@ const App: Component = () => {
 
     // Sample data for Aurelion Sol. Use it to debug the UI without needing
     // to create a custom game.
-    /* fetch('http://' + location.hostname + ':4246/sample-build').then(res => {
+    fetch('http://' + location.hostname + ':4246/sample-build').then(res => {
         res.json().then(data => {
-            setCurrentChampion(data)
+            setCurrentChampion({
+                id:                data.id,
+                name:              data.name,
+                runesByPopularity: data.runes,
+                runesByWinRate:    data.runes,
+                role:              data.role
+            } as ChampionInfo)
         });
-    }).catch(console.log); */
+    }).catch(console.log);
 
     return (
         <div class="flex flex-col h-full text-white px-4 font-inter">
-            <Show when={userInfo()} fallback={
+            <Show when={userInfo()} /* fallback={
                 <div class="text-5xl text-center">Waiting for League Client to Open...</div>
-            }>
+            } */>
                 <div class="my-2 w-full text-xl tracking-tight font-inter antialiased flex">
                     <span class="p-2 bg-slate-700 rounded-2xl ml-auto
                         flex items-center shadow shadow-black/50">
@@ -85,41 +71,7 @@ const App: Component = () => {
                 </div>
             </Show>
             <Show when={currentChampion()}>
-                <div class="flex-1 w-full flex flex-wrap justify-center text-gray-200 md:px-10 content-evenly">
-                    <div class="flex items-center justify-center text-5xl w-full mb-5">
-                        <span class="bg-slate-600 h-[1.5em] w-[1.5em] relative rounded-full mx-4">
-                            <img src={championTileURL(currentChampion()!.id)} alt={`${currentChampion()!.name} icon`}
-                                class="text-center h-[1.4em] w-[1.4em] rounded-full absolute top-1/2 left-1/2
-                                        -translate-x-1/2 -translate-y-1/2" />
-                        </span>
-                        <span class="font-extrabold text-center md:text-5xl text-3xl">{currentChampion()!.name}</span>
-                    </div>
-                    <span class="p-2 md:w-2/6 w-full flex flex-col max-h-2/3">
-                        <img src={currentChampion()!.runes[0].Asset} alt="" class="w-5 h-5 mb-2 mx-auto inline" />
-                        <RuneComponent rune={currentChampion()!.runes[2]} background={false} bigger={true} treeId={currentChampion()!.runes[0].Id} />
-                        <For each={currentChampion()!.runes.slice(3, 6)}>
-                            {(rune) => <RuneComponent rune={rune} treeId={currentChampion()!.runes[0].Id} />}
-                        </For>
-                    </span>
-                    <span class="p-2 md:w-2/6 w-full flex flex-col max-h-2/3">
-                        <img src={currentChampion()!.runes[1].Asset} alt="" class="w-5 h-5 mb-2 mx-auto inline" />
-                        <For each={currentChampion()!.runes.slice(6, 8)}>
-                            {(rune) => <RuneComponent rune={rune} treeId={currentChampion()!.runes[1].Id} />}
-                        </For>
-                        <span class="flex justify-evenly w-1/2 mx-auto mt-2">
-                            <For each={currentChampion()!.runes.slice(8)}>
-                                {(rune) => <StatComponent rune={rune} /> }
-                            </For>
-                        </span>
-                    </span>
-                    <div class="flex items-center justify-center w-full mt-2 mb-5 max-h-2/3">
-                        <button class="py-2 px-5 bg-indigo-700 rounded-md shadow shadow-black/20 hover:cursor-pointer
-                                transition-all hover:bg-indigo-800 duration-50 font-bold leading-loose active:scale-95"
-                            onClick={() => importRunes(currentChampion()!.runes, currentChampion()!.id, currentChampion()!.role)}>
-                            Import Runes
-                        </button>
-                    </div>
-                </div>
+                <RunePageComponent currentChampion={currentChampion()!} winrate={true}></RunePageComponent>
             </Show>
         </div>
     );

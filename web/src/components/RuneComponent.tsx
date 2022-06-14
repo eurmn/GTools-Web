@@ -1,9 +1,7 @@
-import { classList } from "solid-js/web";
+import { createSignal } from "solid-js";
 import { Rune } from "../types/types";
 
-function RuneComponent({ rune, bigger = false, treeId, background = true }:
-    { rune: Rune, treeId?: number, bigger?: boolean, background?: boolean }) {
-
+function color(treeId: number): string {
     let color: string;
     switch (treeId) {
         case 8000:
@@ -26,15 +24,19 @@ function RuneComponent({ rune, bigger = false, treeId, background = true }:
             break;
     }
 
+    return color;
+}
+
+function RuneComponent(props: { rune: Rune, treeId?: number, bigger?: boolean, background: boolean }) {
     return (
         <span class={`flex my-2 items-center`}>
-            <span class={`aspect-square ${bigger ? 'h-20 w-20' : 'h-10 w-10'} my-2 rounded-full flex items-center justify-center`}
-                style={background ? `background: ${color}` : ''}>
-                <img src={rune.Asset} class={`inline ${bigger ? 'h-18 w-18 -translate-x-5' : 'h-9 w-9'} aspect-square`}></img>
+            <span class={`aspect-square ${props.bigger ? 'h-20 w-20' : 'h-10 w-10'} my-2 rounded-full flex items-center justify-center`}
+                style={props.background ? `background: ${color(props.treeId || 0)}` : ''}>
+                <img src={props.rune.Asset} class={`inline ${props.bigger ? 'h-18 w-18 -translate-x-5' : 'h-9 w-9'} aspect-square`}></img>
             </span>
-            <span class={`ml-5 ${bigger ? '-translate-x-10' : ''}`}>
-                <div style={`color: ${color}`}>{rune.Info.Name}</div>
-                <div class="text-xs text-gray-300">{rune.Info.Description}</div>
+            <span class={`ml-5 ${props.bigger ? '-translate-x-10' : ''} overflow-hidden text-ellipsis`}>
+                <div style={`color: ${color(props.treeId || 0)}`}>{props.rune.Info.Name}</div>
+                <div class="text-xs text-gray-300">{props.rune.Info.Description}</div>
             </span>
         </span>
     )

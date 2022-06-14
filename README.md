@@ -1,7 +1,15 @@
-<h1 align="center">⚡ eLOL</h1>
-A lightweight League of Legends's rune importer with external access.
+<h1 align="center">⚡ GTools</h1>
+A lightweight League of Legends's rune importer with external access from any local device.
 
 <br>
+
+## Build:
+ - Install dependencies:
+   * bash shell (with `rm`, `mkdir`, `cp` and `zip`)
+   * run make:
+        ```
+        $ make
+        ```
 
 ## To do:
   - [ ] ~~Check League of Legend's most recent version and download newer resources automatically.~~ (discarted)

@@ -45,15 +45,17 @@ type AuthInformation struct {
 }
 
 type UserInformation struct {
-	Username string
-	IconId   string
+	Username   string
+	IconId     string
+	SummonerId string
 }
 
 type ChampionChange struct {
-	ChampionId   string
-	ChampionName string
-	Runes        []Rune
-	Role         string
+	ChampionId        string
+	ChampionName      string
+	RunesByPopularity []Rune
+	RunesByWinRate    []Rune
+	Role              string
 }
 
 type RuneInfo struct {
@@ -100,6 +102,10 @@ func main() {
 
 	wsQueue = make(chan interface{})
 
+	if !*debug {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	router := gin.New()
 	router.Use(cors.Default())
 
@@ -120,7 +126,7 @@ func main() {
 		c.JSON(http.StatusOK, map[string]interface{}{
 			"id":   136,
 			"name": "Aurelion Sol",
-			"role": "MID",
+			"role": "Mid",
 			"runes": []map[string]interface{}{
 				{
 					"Id":    8100,
@@ -403,8 +409,7 @@ func main() {
 
 				if err != nil {
 					log.Println("write:", err)
-					w.Close()
-					w.CloseHandler()
+					Unsubscribe(subId)
 					return
 				}
 			}
@@ -463,8 +468,9 @@ func LcuCommunication() {
 		}
 
 		userInformation = UserInformation{
-			Username: string(j.Get("displayName").GetStringBytes()),
-			IconId:   fmt.Sprint(j.Get("profileIconId").GetInt()),
+			Username:   string(j.GetStringBytes("displayName")),
+			IconId:     fmt.Sprint(j.GetInt("profileIconId")),
+			SummonerId: fmt.Sprint(j.GetInt("summonerId")),
 		}
 
 		// Emit the current summoner info to every client
@@ -503,10 +509,10 @@ func LcuCommunication() {
 	defer c.Close()
 
 	// Subscribe to changes on the current champion/summoner
-	SubscribeToLCUEvent("OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion", c)
-	SubscribeToLCUEvent("OnJsonApiEvent_lol-champ-select_v1_current-champion", c)
+	SubscribeToLCUEvent("OnJsonApiEvent_lol-champ-select_v1_session", c)
 	SubscribeToLCUEvent("OnJsonApiEvent_lol-summoner_v1_current-summoner", c)
 
+	lastChampionId := uint16(0)
 	// Listen to the websocket
 	for {
 		mt, message, err := c.ReadMessage()
@@ -532,33 +538,112 @@ func LcuCommunication() {
 		}
 
 		switch string(j.GetStringBytes("1")) {
-		case "OnJsonApiEvent_lol-champ-select-legacy_v1_current-champion", "OnJsonApiEvent_lol-champ-select_v1_current-champion":
-			if string(j.Get("2").GetStringBytes("eventType")) == "Create" {
-				cid := uint16(j.Get("2").GetInt("data"))
+		case "OnJsonApiEvent_lol-champ-select_v1_session":
+			if string(j.Get("2").GetStringBytes("eventType")) != "Delete" {
+				data := j.Get("2").Get("data")
 
-				// Get runes
-				runes, err := GetRunesForChampion(cid)
+				cid := uint16(0)
+				role := ""
+				for _, summoner := range data.GetArray("myTeam") {
+					if fmt.Sprint(summoner.GetInt("summonerId")) == userInformation.SummonerId {
+						switch string(summoner.GetStringBytes("assignedPosition")) {
+						case "bottom":
+							role = "ADC"
+						case "support":
+							role = "SUPPORT"
+						case "jungle":
+							role = "JUNGLE"
+						case "top":
+							role = "TOP"
+						case "middle":
+							role = "MID"
+						}
+						cid = uint16(summoner.GetInt("championId"))
+						if cid == 0 {
+							cid = uint16(summoner.GetInt("championPickIntent"))
+						}
+						break
+					}
+				}
+
+				if cid == 0 || lastChampionId == cid {
+					break
+				}
+
+				lastChampionId = cid
+				queue := "RANKED_SOLO_5X5"
+
+				if role == "" {
+					// Get current queue.
+					r, err := http.NewRequest(http.MethodGet, "https://"+authInfo.Url+"/lol-lobby/v1/parties/gamemode", nil)
+					if err != nil {
+						log.Printf("Failed to create request: %v", err)
+						break
+					}
+					r.SetBasicAuth("riot", authInfo.Authentication)
+
+					resp, err := lcuClient.Do(r)
+					if err != nil {
+						log.Printf("Failed to send request: %v", err)
+						break
+					}
+
+					defer resp.Body.Close()
+					body, err := io.ReadAll(resp.Body)
+					if err != nil {
+						log.Printf("Failed to read response: %v", err)
+						break
+					}
+
+					content, err := fastjson.ParseBytes(body)
+					if err != nil {
+						log.Printf("Failed to parse response: %v", err)
+						break
+					}
+
+					queueId := content.GetInt("queueId")
+					// 430 = blink pick; 450 = aram.
+					if queueId == 450 || queueId == 900 {
+						queue = "HOWLING_ABYSS_ARAM"
+					} else {
+						role, err = GetPrimaryRoleForChampion(cid)
+						if err != nil {
+							log.Printf("Failed to get primary role: %v", err)
+							continue
+						}
+					}
+				}
+
+				// Get runes by popularity
+				runesPop, err := GetRunesForChampion(cid, role, queue, false)
 				if err != nil {
 					log.Printf("Failed to get runes: %v", err)
 					continue
 				}
 
-				role, err := GetPrimaryRoleForChampion(cid)
+				// Get runes by winRate
+				runesWr, err := GetRunesForChampion(cid, role, queue, true)
 				if err != nil {
-					log.Printf("Failed to get primary role: %v", err)
+					log.Printf("Failed to get runes: %v", err)
 					continue
 				}
 
-				assets := []Rune{}
-				for _, run := range runes {
-					assets = append(assets, runeInfo[run])
+				assetsPop := []Rune{}
+				for _, run := range runesPop {
+					assetsPop = append(assetsPop, runeInfo[run])
+				}
+
+				assetsWr := []Rune{}
+				for _, run := range runesWr {
+					assetsWr = append(assetsWr, runeInfo[run])
 				}
 
 				EmitEvent(CHAMPION_CHANGE, ChampionChange{
-					ChampionId:   fmt.Sprint(cid),
-					ChampionName: championNames[cid],
-					Runes:        assets,
-					Role:         role,
+					ChampionId:        fmt.Sprint(cid),
+					ChampionName:      championNames[cid],
+					RunesByPopularity: assetsPop,
+					RunesByWinRate:    assetsWr,
+					Role:              role,
 				})
 			}
 		case "OnJsonApiEvent_lol-summoner_v1_current-summoner":
@@ -570,13 +655,15 @@ func LcuCommunication() {
 
 			if string(data.GetStringBytes("eventType")) == "Delete" {
 				userInformation = UserInformation{
-					Username: "",
-					IconId:   "",
+					Username:   "",
+					IconId:     "",
+					SummonerId: "",
 				}
 			} else {
 				userInformation = UserInformation{
-					Username: string(j.Get("2").Get("data").Get("displayName").GetStringBytes()),
-					IconId:   fmt.Sprint(j.Get("2").Get("data").Get("profileIconId").GetInt()),
+					Username:   string(j.Get("2").Get("data").GetStringBytes("displayName")),
+					IconId:     fmt.Sprint(j.Get("2").Get("data").GetInt("profileIconId")),
+					SummonerId: fmt.Sprint(j.Get("2").Get("data").GetInt("summonerId")),
 				}
 			}
 
@@ -599,11 +686,12 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 		}, nil
 	case CHAMPION_CHANGE:
 		return map[string]interface{}{
-			"type":  eventType,
-			"id":    data.(ChampionChange).ChampionId,
-			"name":  data.(ChampionChange).ChampionName,
-			"role":  data.(ChampionChange).Role,
-			"runes": data.(ChampionChange).Runes,
+			"type":              eventType,
+			"id":                data.(ChampionChange).ChampionId,
+			"name":              data.(ChampionChange).ChampionName,
+			"role":              data.(ChampionChange).Role,
+			"runesByPopularity": data.(ChampionChange).RunesByPopularity,
+			"runesByWinRate":    data.(ChampionChange).RunesByWinRate,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
@@ -680,13 +768,9 @@ func RetrieveLeaguePath() string {
 				moduleSnapshot, err := windows.CreateToolhelp32Snapshot(
 					windows.TH32CS_SNAPMODULE, processEntry.ProcessID,
 				)
-				for err != nil {
+				if err != nil {
 					log.Printf("Failed to create module snapshot: %v", err)
-
-					// Create a snapshot with the information of the process.
-					moduleSnapshot, err = windows.CreateToolhelp32Snapshot(
-						windows.TH32CS_SNAPMODULE, processEntry.ProcessID,
-					)
+					continue
 				}
 
 				windows.Module32First(moduleSnapshot, &moduleEntry)
@@ -856,8 +940,32 @@ func GetUpdatedRuneAssets() (runeAssetPaths map[uint16]Rune, err error) {
 
 // Get the URL (from champion.gg/blitz.gg) used to get info about the champion.
 func BlitzGGUrlForChampion(championId uint16, role string, queue string) string {
-	// this url was extracted from the network tab at champion.gg, it was probably
+	// these urls were extracted from the network tab at champion.gg, it was probably
 	// not made for public use, so it can die at any moment (making the code break D:).
+	if queue == "HOWLING_ABYSS_ARAM" {
+		return "https://league-champion-aggregate.iesdev.com/graphql?query=query%20" +
+			url.QueryEscape(
+				"ChampionBuilds($championId:Int!, $queue:Queue!, $role:Role, $opponentChampionId:Int, $key:ChampionBuildKey) {"+
+					"championBuildStats("+
+					"championId:$championId, queue:$queue, role:$role, opponentChampionId:$opponentChampionId, key:$key) {"+
+					"championId opponentChampionId queue role builds { "+
+					"completedItems {"+
+					"games index averageIndex itemId wins"+
+					"} games mythicId mythicAverageIndex primaryRune runes {"+
+					"games index runeId wins treeId"+
+					"} skillOrders {"+
+					"games skillOrder wins"+
+					"} startingItems {"+
+					"games startingItemIds wins"+
+					"} summonerSpells {"+
+					"games summonerSpellIds wins"+
+					"} wins}}}",
+			) + "&variables=" +
+			url.QueryEscape(fmt.Sprintf(
+				`{"championId": %d, "queue": "%s", "opponentChampionId": null, "key": "PUBLIC"}`,
+				championId, queue,
+			))
+	}
 	return "https://league-champion-aggregate.iesdev.com/graphql?query=query%20" +
 		url.QueryEscape(
 			"ChampionBuilds($championId:Int!, $queue:Queue!, $role:Role, $opponentChampionId:Int, $key:ChampionBuildKey) {"+
@@ -908,13 +1016,8 @@ func GetPrimaryRoleForChampion(championId uint16) (role string, err error) {
 }
 
 // Return the runes for the selected champion.
-func GetRunesForChampion(championId uint16) (runes []uint16, err error) {
-	role, err := GetPrimaryRoleForChampion(championId)
-	if err != nil {
-		return nil, err
-	}
-
-	url := BlitzGGUrlForChampion(championId, role, "RANKED_SOLO_5X5")
+func GetRunesForChampion(championId uint16, role string, queue string, winRate bool) (runes []uint16, err error) {
+	url := BlitzGGUrlForChampion(championId, role, queue)
 	res, err := http.Get(url)
 	if err != nil {
 		return nil, err
@@ -933,10 +1036,13 @@ func GetRunesForChampion(championId uint16) (runes []uint16, err error) {
 
 	builds := content.Get("data").Get("championBuildStats").GetArray("builds")
 	sort.SliceStable(builds, func(i, j int) bool {
-		// sort by popularity
-		return builds[i].GetInt("games") > builds[j].GetInt("games")
-		// or by win-rate:
-		// return builds[i].GetInt("wins")/builds[i].GetInt("games") > builds[j].GetInt("wins")/builds[j].GetInt("games")
+		if winRate {
+			// sort by winRate
+			return builds[i].GetInt("wins")/builds[i].GetInt("games") > builds[j].GetInt("wins")/builds[j].GetInt("games")
+		} else {
+			// sort by popularity
+			return builds[i].GetInt("games") > builds[j].GetInt("games")
+		}
 	})
 
 	selectedBuild := builds[0]
@@ -955,10 +1061,13 @@ func GetRunesForChampion(championId uint16) (runes []uint16, err error) {
 		}
 
 		sort.SliceStable(currentIndex, func(i, j int) bool {
-			// sort by popularity
-			return currentIndex[i].GetInt("games") > currentIndex[j].GetInt("games")
-			// or by win-rate:
-			// return currentIndex[i].GetInt("wins")/currentIndex[i].GetInt("games") > currentIndex[j].GetInt("wins")/currentIndex[j].GetInt("games")
+			if winRate {
+				// sort by win-rate:
+				return currentIndex[i].GetInt("wins")/currentIndex[i].GetInt("games") > currentIndex[j].GetInt("wins")/currentIndex[j].GetInt("games")
+			} else {
+				// sort by popularity
+				return currentIndex[i].GetInt("games") > currentIndex[j].GetInt("games")
+			}
 		})
 
 		if i == 0 {
@@ -984,7 +1093,14 @@ func RuneArrayToObject(runes []uint16, championId uint16, role string) (runesObj
 
 	r := a.NewObject()
 
-	r.Set("name", a.NewString("[eLoL] "+championNames[championId]+" "+role))
+	var desc string
+	if role == "" {
+		desc = "ARAM"
+	} else {
+		desc = role
+	}
+
+	r.Set("name", a.NewString("[GTools] "+championNames[championId]+" "+desc))
 	r.Set("primaryStyleId", a.NewNumberInt(int(runes[0])))
 	r.Set("subStyleId", a.NewNumberInt(int(runes[1])))
 

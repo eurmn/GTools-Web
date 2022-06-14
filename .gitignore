@@ -9,6 +9,8 @@ web/pnpm-lock.yaml
 *.dll
 *.so
 *.dylib
+*.rar;
+dist/
 
 # Test binary, built with `go test -c`
 *.test
