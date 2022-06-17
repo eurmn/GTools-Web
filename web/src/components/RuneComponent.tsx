@@ -34,7 +34,7 @@ function RuneComponent(props: { rune: Rune, treeId?: number, bigger?: boolean, b
                 style={props.background ? `background: ${color(props.treeId || 0)}` : ''}>
                 <img src={props.rune.Asset} class={`inline ${props.bigger ? 'h-18 w-18 -translate-x-5' : 'h-9 w-9'} aspect-square`}></img>
             </span>
-            <span class={`ml-5 ${props.bigger ? '-translate-x-10' : ''} overflow-hidden text-ellipsis`}>
+            <span class={`ml-5 ${props.bigger ? '-translate-x-10' : ''} max-h-14 overflow-hidden`}>
                 <div style={`color: ${color(props.treeId || 0)}`}>{props.rune.Info.Name}</div>
                 <div class="text-xs text-gray-300">{props.rune.Info.Description}</div>
             </span>

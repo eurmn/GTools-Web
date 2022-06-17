@@ -1,11 +1,15 @@
 export let CDRAGON = 'https://raw.communitydragon.org/latest'
 
 export type ChampionInfo = {
-    id:                string,
-    name:              string,
-    runesByPopularity: Rune[],
-    runesByWinRate:    Rune[],
-    role:              string
+    id:                        string,
+    name:                      string,
+    runesByPopularity:         Rune[],
+    runesByWinRate:            Rune[],
+    itemsByPopularity:         Item[],
+    itemsByWinRate:            Item[],
+    startingItemsByPopularity: Item[],
+    startingItemsByWinRate:    Item[],
+    role:                      string
 }
 
 export type Rune = {
@@ -15,6 +19,12 @@ export type Rune = {
         Name:        string,
         Description: string
     }
+}
+
+export type Item = {
+    Id:    number,
+    Asset: string,
+    Name:  string,
 }
 
 export let RuneColors  = {
@@ -41,9 +51,13 @@ export type Event = {
     iconId:   string;
 } | {
     type:  EventType.CHAMPION_CHANGE;
-    id:                string;
-    name:              string;
-    runesByPopularity: Rune[];
-    runesByWinRate:    Rune[];
-    role:              string;
+    id:                        string;
+    name:                      string;
+    runesByPopularity:         Rune[];
+    runesByWinRate:            Rune[];
+    itemsByPopularity:         Item[];
+    itemsByWinRate:            Item[];
+    startingItemsByPopularity: Item[];
+    startingItemsByWinRate:    Item[];
+    role:                      string;
 }

@@ -1,5 +1,5 @@
 import { Component, createSignal, For, Show } from 'solid-js';
-import RunePageComponent from './components/RunePageComponent';
+import BuildPageComponent from './components/BuildPageComponent';
 
 import { CDRAGON, Event, EventType, ChampionInfo, UserInfo, Rune } from './types/types'
 
@@ -24,11 +24,15 @@ const App: Component = () => {
                 break;
             case EventType.CHAMPION_CHANGE:
                 setCurrentChampion({
-                    id:                data.id,
-                    name:              data.name,
-                    runesByPopularity: data.runesByPopularity,
-                    runesByWinRate:    data.runesByWinRate,
-                    role:              data.role
+                    id:                        data.id,
+                    name:                      data.name,
+                    runesByPopularity:         data.runesByPopularity,
+                    runesByWinRate:            data.runesByWinRate,
+                    itemsByWinRate:            data.itemsByWinRate,
+                    itemsByPopularity:         data.itemsByPopularity,
+                    startingItemsByPopularity: data.startingItemsByPopularity,
+                    startingItemsByWinRate:    data.startingItemsByWinRate,
+                    role:                      data.role
                 } as ChampionInfo);
                 
                 break;
@@ -46,13 +50,18 @@ const App: Component = () => {
     // to create a custom game.
     fetch('http://' + location.hostname + ':4246/sample-build').then(res => {
         res.json().then(data => {
+            console.log(data);
             setCurrentChampion({
-                id:                data.id,
-                name:              data.name,
-                runesByPopularity: data.runes,
-                runesByWinRate:    data.runes,
-                role:              data.role
-            } as ChampionInfo)
+                id:                        data.id,
+                name:                      data.name,
+                runesByPopularity:         data.runesByPopularity,
+                runesByWinRate:            data.runesByWinRate,
+                itemsByWinRate:            data.itemsByWinRate,
+                itemsByPopularity:         data.itemsByPopularity,
+                startingItemsByPopularity: data.startingItemsByPopularity,
+                startingItemsByWinRate:    data.startingItemsByWinRate,
+                role:                      data.role
+            } as ChampionInfo);
         });
     }).catch(console.log);
 
@@ -71,7 +80,7 @@ const App: Component = () => {
                 </div>
             </Show>
             <Show when={currentChampion()}>
-                <RunePageComponent currentChampion={currentChampion()!} winrate={true}></RunePageComponent>
+                <BuildPageComponent currentChampion={currentChampion()!}></BuildPageComponent>
             </Show>
         </div>
     );

@@ -6,10 +6,10 @@ A lightweight League of Legends's rune importer with external access from any lo
 ## Build:
  - Install dependencies:
    * bash shell (with `rm`, `mkdir`, `cp` and `zip`)
-   * run make:
-        ```
-        $ make
-        ```
+ - run make:
+    ```
+    $ make
+    ```
 
 ## To do:
   - [ ] ~~Check League of Legend's most recent version and download newer resources automatically.~~ (discarted)
@@ -18,13 +18,17 @@ A lightweight League of Legends's rune importer with external access from any lo
   - [X] Update the clients on the connection pool when a new change is observed on the LCU.
   - [X] Create the Frontend UI.
   - [X] Add rune importing from ~~U.GG~~ blitz.gg.
+  - [X] Show item build.
+  - [ ] Add more tabs.
+  - [ ] Add cheats (little hacks with the LCU).
   - [ ] Set log to logfile when not in debug mode.
   - [ ] Show tier list when not in champion selection.
-  - [ ] Show item build.
   - [ ] Show build even when connected after the game has started.
   - [ ] Consider switching to [fasthttp](https://github.com/valyala/fasthttp).
 
-<br>
+## Known bugs:
+  - [ ] Runes can have mixed-up trees (example with Jayce, manaflow band + treasure hunter).
+  - [ ] Connecting to the client after the app is already open makes the app not recieve updates on the lobby endpoint.
 
 ### Riot Games: Third Party Applications
 https://support-leagueoflegends.riotgames.com/hc/en-us/articles/225266848

@@ -10,9 +10,11 @@ import (
 	"html"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -51,16 +53,36 @@ type UserInformation struct {
 }
 
 type ChampionChange struct {
-	ChampionId        string
-	ChampionName      string
-	RunesByPopularity []Rune
-	RunesByWinRate    []Rune
-	Role              string
+	ChampionId                string
+	ChampionName              string
+	RunesByPopularity         []Rune
+	RunesByWinRate            []Rune
+	ItemsByPopularity         []Item
+	ItemsByWinRate            []Item
+	StartingItemsByPopularity []Item
+	StartingItemsByWinRate    []Item
+	Role                      string
 }
 
 type RuneInfo struct {
 	Name        string
 	Description string
+}
+
+type ChampionBuild struct {
+	StartingItems SortedItems
+	Items         SortedItems
+	Runes         SortedRunes
+}
+
+type SortedRunes struct {
+	ByPopularity []uint16
+	ByWinRate    []uint16
+}
+
+type SortedItems struct {
+	ByPopularity []uint16
+	ByWinRate    []uint16
 }
 
 type Rune struct {
@@ -69,12 +91,19 @@ type Rune struct {
 	Info  RuneInfo
 }
 
+type Item struct {
+	Id    uint16
+	Asset string
+	Name  string
+}
+
 var userInformation UserInformation
 var upgrader = websocket.Upgrader{}
 var wsQueue chan interface{}
 var subscribers = []uint8{}
 var championNames = map[uint16]string{}
 var runeInfo = map[uint16]Rune{}
+var itemInfo = map[uint16]Item{}
 var authInfo AuthInformation
 var p *bluemonday.Policy = bluemonday.StripTagsPolicy()
 
@@ -100,6 +129,11 @@ func main() {
 		log.Fatalf("Failed to get updated rune asset paths: %v", err)
 	}
 
+	itemInfo, err = GetUpdatedItemAssets()
+	if err != nil {
+		log.Fatalf("Failed to get updated item asset paths: %v", err)
+	}
+
 	wsQueue = make(chan interface{})
 
 	if !*debug {
@@ -123,101 +157,66 @@ func main() {
 	}
 
 	router.GET("/sample-build", func(c *gin.Context) {
-		c.JSON(http.StatusOK, map[string]interface{}{
-			"id":   136,
-			"name": "Aurelion Sol",
-			"role": "Mid",
-			"runes": []map[string]interface{}{
-				{
-					"Id":    8100,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7200_domination.png",
-					"Info": map[string]string{
-						"Name":        "Domination",
-						"Description": "",
-					},
-				},
-				{
-					"Id":    8300,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/7203_whimsy.png",
-					"Info": map[string]string{
-						"Name":        "Inspiration",
-						"Description": "",
-					},
-				},
-				{
-					"Id":    8112,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/electrocute/electrocute.png",
-					"Info": map[string]string{
-						"Name":        "Eletrocute",
-						"Description": "Hitting a champion with 3 separate attacks or abilities in 3s deals bonus adaptive damage.",
-					},
-				},
-				{
-					"Id":    8139,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/tasteofblood/greenterror_tasteofblood.png",
-					"Info": map[string]string{
-						"Name":        "Taste of Blood",
-						"Description": "Heal when you damage an enemy champion.",
-					},
-				},
-				{
-					"Id":    8138,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/eyeballcollection/eyeballcollection.png",
-					"Info": map[string]string{
-						"Name":        "Eyeball Collection",
-						"Description": "Collect eyeballs for champion takedowns. Gain permanent AD or AP, adaptive for each eyeball plus bonus upon collection completion.",
-					},
-				},
-				{
-					"Id":    8105,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/domination/relentlesshunter/relentlesshunter.png",
-					"Info": map[string]string{
-						"Name":        "Relentless Hunter",
-						"Description": "Unique takedowns grant permanent out of combat MS. ",
-					},
-				},
-				{
-					"Id":    8345,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/inspiration/biscuitdelivery/biscuitdelivery.png",
-					"Info": map[string]string{
-						"Name":        "Biscuit Delivery",
-						"Description": "Gain a free Biscuit every 2 min, until 6 min. Consuming or selling a Biscuit permanently increases your max mana and restores health and mana.",
-					},
-				},
-				{
-					"Id":    8352,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/styles/inspiration/timewarptonic/timewarptonic.png",
-					"Info": map[string]string{
-						"Name":        "Time Warp Tonic",
-						"Description": "Potions and biscuits grant some restoration immediately. Gain MS  while under their effects.",
-					},
-				},
-				{
-					"Id":    5005,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsattackspeedicon.png",
-					"Info": map[string]string{
-						"Name":        "",
-						"Description": "",
-					},
-				},
-				{
-					"Id":    5008,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsadaptiveforceicon.png",
-					"Info": map[string]string{
-						"Name":        "",
-						"Description": "",
-					},
-				},
-				{
-					"Id":    5003,
-					"Asset": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perk-images/statmods/statmodsmagicresicon.magicresist_fix.png",
-					"Info": map[string]string{
-						"Name":        "",
-						"Description": "",
-					},
-				},
-			},
+		build, err := GetBuildForChampion(126, "MID", "RANKED_SOLO_5X5")
+		if err != nil {
+			log.Printf("Failed to get runes: %v", err)
+			return
+		}
+
+		// runes by popularity
+		assetsPop := []Rune{}
+		for _, run := range build.Runes.ByPopularity {
+			assetsPop = append(assetsPop, runeInfo[run])
+		}
+
+		// runes by win-rate
+		assetsWr := []Rune{}
+		for _, run := range build.Runes.ByWinRate {
+			assetsWr = append(assetsWr, runeInfo[run])
+		}
+
+		// items by popularity
+		itemsPop := []Item{}
+		for _, item := range build.Items.ByPopularity {
+			itemsPop = append(itemsPop, itemInfo[item])
+		}
+
+		// items by win-rate
+		itemsWr := []Item{}
+		for _, item := range build.Items.ByWinRate {
+			itemsWr = append(itemsWr, itemInfo[item])
+		}
+
+		// starting items by popularity
+		startItemsPop := []Item{}
+		for _, item := range build.StartingItems.ByPopularity {
+			startItemsPop = append(startItemsPop, itemInfo[item])
+		}
+
+		// items by win-rate
+		startItemsWr := []Item{}
+		for _, item := range build.StartingItems.ByWinRate {
+			startItemsWr = append(startItemsWr, itemInfo[item])
+		}
+
+		msg, err := CreateWSMessage(CHAMPION_CHANGE, ChampionChange{
+			ChampionId:                fmt.Sprint(126),
+			ChampionName:              championNames[126],
+			RunesByPopularity:         assetsPop,
+			RunesByWinRate:            assetsWr,
+			ItemsByPopularity:         itemsPop,
+			ItemsByWinRate:            itemsWr,
+			StartingItemsByPopularity: startItemsPop,
+			StartingItemsByWinRate:    startItemsWr,
+			Role:                      "Mid",
 		})
+
+		if err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		c.JSON(http.StatusOK, msg)
 	})
 
 	router.POST("/import-runes", func(c *gin.Context) {
@@ -416,6 +415,15 @@ func main() {
 		}
 	})
 
+	var port string
+	if *debug {
+		port = "3000"
+	} else {
+		port = "4246"
+	}
+
+	// Open url in browser
+	exec.Command("rundll32", "url.dll,FileProtocolHandler", "http://127.0.0.1:"+port).Start()
 	if err := router.Run("0.0.0.0:4246"); err != nil {
 		log.Fatal("failed run app: ", err)
 	}
@@ -497,8 +505,7 @@ func LcuCommunication() {
 	if err != nil {
 		log.Printf("Failed to dial: %v", err)
 		if res != nil {
-			body, err := io.ReadAll(res.Body)
-			log.Println(string(body))
+			_, err := io.ReadAll(res.Body)
 			if err != nil {
 				log.Printf("%d: Failed to read response: %v", res.StatusCode, err)
 			}
@@ -538,7 +545,7 @@ func LcuCommunication() {
 		}
 
 		switch string(j.GetStringBytes("1")) {
-		case "OnJsonApiEvent_lol-champ-select_v1_session":
+		case "OnJsonApiEvent_lol-champ-select_v1_session", "OnJsonApiEvent_lol-champ-select-legacy_v1_session":
 			if string(j.Get("2").GetStringBytes("eventType")) != "Delete" {
 				data := j.Get("2").Get("data")
 
@@ -614,36 +621,58 @@ func LcuCommunication() {
 					}
 				}
 
-				// Get runes by popularity
-				runesPop, err := GetRunesForChampion(cid, role, queue, false)
+				build, err := GetBuildForChampion(cid, role, queue)
 				if err != nil {
 					log.Printf("Failed to get runes: %v", err)
 					continue
 				}
 
-				// Get runes by winRate
-				runesWr, err := GetRunesForChampion(cid, role, queue, true)
-				if err != nil {
-					log.Printf("Failed to get runes: %v", err)
-					continue
+				// runes by popularity
+				runesPop := []Rune{}
+				for _, run := range build.Runes.ByPopularity {
+					runesPop = append(runesPop, runeInfo[run])
 				}
 
-				assetsPop := []Rune{}
-				for _, run := range runesPop {
-					assetsPop = append(assetsPop, runeInfo[run])
+				// runes by win-rate
+				runesWr := []Rune{}
+				for _, run := range build.Runes.ByWinRate {
+					runesWr = append(runesWr, runeInfo[run])
 				}
 
-				assetsWr := []Rune{}
-				for _, run := range runesWr {
-					assetsWr = append(assetsWr, runeInfo[run])
+				// items by popularity
+				itemsPop := []Item{}
+				for _, item := range build.Items.ByPopularity {
+					itemsPop = append(itemsPop, itemInfo[item])
+				}
+
+				// items by win-rate
+				itemsWr := []Item{}
+				for _, item := range build.Items.ByWinRate {
+					itemsWr = append(itemsWr, itemInfo[item])
+				}
+
+				// starting items by popularity
+				startItemsPop := []Item{}
+				for _, item := range build.StartingItems.ByPopularity {
+					startItemsPop = append(startItemsPop, itemInfo[item])
+				}
+
+				// items by win-rate
+				startItemsWr := []Item{}
+				for _, item := range build.StartingItems.ByWinRate {
+					startItemsWr = append(startItemsWr, itemInfo[item])
 				}
 
 				EmitEvent(CHAMPION_CHANGE, ChampionChange{
-					ChampionId:        fmt.Sprint(cid),
-					ChampionName:      championNames[cid],
-					RunesByPopularity: assetsPop,
-					RunesByWinRate:    assetsWr,
-					Role:              role,
+					ChampionId:                fmt.Sprint(cid),
+					ChampionName:              championNames[cid],
+					RunesByPopularity:         runesPop,
+					RunesByWinRate:            runesWr,
+					ItemsByPopularity:         itemsPop,
+					ItemsByWinRate:            itemsWr,
+					StartingItemsByPopularity: startItemsPop,
+					StartingItemsByWinRate:    startItemsWr,
+					Role:                      role,
 				})
 			}
 		case "OnJsonApiEvent_lol-summoner_v1_current-summoner":
@@ -686,12 +715,16 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 		}, nil
 	case CHAMPION_CHANGE:
 		return map[string]interface{}{
-			"type":              eventType,
-			"id":                data.(ChampionChange).ChampionId,
-			"name":              data.(ChampionChange).ChampionName,
-			"role":              data.(ChampionChange).Role,
-			"runesByPopularity": data.(ChampionChange).RunesByPopularity,
-			"runesByWinRate":    data.(ChampionChange).RunesByWinRate,
+			"type":                      eventType,
+			"id":                        data.(ChampionChange).ChampionId,
+			"name":                      data.(ChampionChange).ChampionName,
+			"role":                      data.(ChampionChange).Role,
+			"runesByPopularity":         data.(ChampionChange).RunesByPopularity,
+			"runesByWinRate":            data.(ChampionChange).RunesByWinRate,
+			"itemsByPopularity":         data.(ChampionChange).ItemsByPopularity,
+			"itemsByWinRate":            data.(ChampionChange).ItemsByWinRate,
+			"startingItemsByPopularity": data.(ChampionChange).StartingItemsByPopularity,
+			"startingItemsByWinRate":    data.(ChampionChange).StartingItemsByWinRate,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
@@ -733,6 +766,24 @@ func Unsubscribe(id uint8) {
 	}
 }
 
+// Get all non-loopback IP Adresses of this device.
+func GetIPAddresses() ([]string, error) {
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	var ipAddresses []string
+	for _, address := range addresses {
+		// check the address type and if it is not a loopback the display it
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				ipAddresses = append(ipAddresses, ipnet.IP.String())
+			}
+		}
+	}
+	return ipAddresses, nil
+}
+
 // Returns the total virtual memory consumed by the process in MB.
 func GetMemoryUsage() uint64 {
 	var m runtime.MemStats
@@ -744,6 +795,7 @@ func GetMemoryUsage() uint64 {
 func RetrieveLeaguePath() string {
 	var leaguePath string
 
+lpLoop:
 	for leaguePath == "" {
 		// https://docs.microsoft.com/en-us/windows/win32/toolhelp/taking-a-snapshot-and-viewing-processes.
 		// Retrieve a snapshot of all processes.
@@ -770,7 +822,8 @@ func RetrieveLeaguePath() string {
 				)
 				if err != nil {
 					log.Printf("Failed to create module snapshot: %v", err)
-					continue
+					time.Sleep(time.Second * 2)
+					continue lpLoop
 				}
 
 				windows.Module32First(moduleSnapshot, &moduleEntry)
@@ -860,31 +913,69 @@ func GetUpdatedChampionNames() (championNames map[uint16]string, err error) {
 	return localChampionNames, nil
 }
 
-// Get the icon path for every rune.
-func GetUpdatedRuneAssets() (runeAssetPaths map[uint16]Rune, err error) {
-	res, err := http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/perkstyles.json")
+// Get the icon path for every item.
+func GetUpdatedItemAssets() (items map[uint16]Item, err error) {
+	res, err := http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/items.json")
 	if err != nil {
-		return nil, err
+		return items, err
 	}
 
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, err
+		return items, err
 	}
 
 	content, err := fastjson.ParseBytes(body)
 	if err != nil {
-		return nil, err
+		return items, err
 	}
 
-	runes := map[uint16]Rune{}
+	items = map[uint16]Item{}
+	for _, item := range content.GetArray() {
+		itemId := item.Get("id").GetUint()
+		itemPath := string(item.GetStringBytes("iconPath"))
+		itemPath = CDRAGON +
+			strings.ToLower(
+				strings.Replace(itemPath, "/lol-game-data/assets/ASSETS/", "/plugins/rcp-be-lol-game-data/global/default/assets/", 1),
+			)
+		itemName := string(item.GetStringBytes("name"))
+
+		items[uint16(itemId)] = Item{
+			Id:    uint16(itemId),
+			Asset: itemPath,
+			Name:  itemName,
+		}
+	}
+
+	return items, nil
+}
+
+// Get the icon path for every rune.
+func GetUpdatedRuneAssets() (runes map[uint16]Rune, err error) {
+	res, err := http.Get(CDRAGON + "/plugins/rcp-be-lol-game-data/global/default/v1/perkstyles.json")
+	if err != nil {
+		return runes, err
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return runes, err
+	}
+
+	content, err := fastjson.ParseBytes(body)
+	if err != nil {
+		return runes, err
+	}
+
+	runes = map[uint16]Rune{}
 	for _, run := range content.GetArray("styles") {
 		runeId := run.Get("id").GetUint()
 		runePath := string(run.GetStringBytes("iconPath"))
 		runePath = CDRAGON +
 			strings.ToLower(
-				strings.Replace(string(runePath), "/lol-game-data/assets/v1/", "/plugins/rcp-be-lol-game-data/global/default/v1/", 1),
+				strings.Replace(runePath, "/lol-game-data/assets/v1/", "/plugins/rcp-be-lol-game-data/global/default/v1/", 1),
 			)
 		runeName := run.GetStringBytes("name")
 
@@ -1016,75 +1107,154 @@ func GetPrimaryRoleForChampion(championId uint16) (role string, err error) {
 }
 
 // Return the runes for the selected champion.
-func GetRunesForChampion(championId uint16, role string, queue string, winRate bool) (runes []uint16, err error) {
+func GetBuildForChampion(championId uint16, role string, queue string) (build ChampionBuild, err error) {
 	url := BlitzGGUrlForChampion(championId, role, queue)
 	res, err := http.Get(url)
 	if err != nil {
-		return nil, err
+		return build, err
 	}
 
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, err
+		return build, err
 	}
 
 	content, err := fastjson.ParseBytes(body)
 	if err != nil {
-		return nil, err
+		return build, err
 	}
 
-	builds := content.Get("data").Get("championBuildStats").GetArray("builds")
-	sort.SliceStable(builds, func(i, j int) bool {
-		if winRate {
-			// sort by winRate
-			return builds[i].GetInt("wins")/builds[i].GetInt("games") > builds[j].GetInt("wins")/builds[j].GetInt("games")
-		} else {
-			// sort by popularity
-			return builds[i].GetInt("games") > builds[j].GetInt("games")
-		}
-	})
+	allRunes := [][]uint16{}
+	allItems := [][]uint16{}
+	allStartingItems := [][]uint16{}
+	winRate := false
 
-	selectedBuild := builds[0]
-	selectedRunes := selectedBuild.GetArray("runes")
-
-	var primaryStyleId uint16
-	var secondaryStyleId uint16
-
-	finalRunes := []uint16{}
-	for i := 0; i < 8; i++ {
-		currentIndex := []*fastjson.Value{}
-		for _, run := range selectedRunes {
-			if run.GetInt("index") == i {
-				currentIndex = append(currentIndex, run)
-			}
-		}
-
-		sort.SliceStable(currentIndex, func(i, j int) bool {
+	for i := 0; i < 2; i++ {
+		builds := content.Get("data").Get("championBuildStats").GetArray("builds")
+		sort.SliceStable(builds, func(i, j int) bool {
 			if winRate {
-				// sort by win-rate:
-				return currentIndex[i].GetInt("wins")/currentIndex[i].GetInt("games") > currentIndex[j].GetInt("wins")/currentIndex[j].GetInt("games")
+				// sort by winRate
+				return builds[i].GetInt("wins")/builds[i].GetInt("games") > builds[j].GetInt("wins")/builds[j].GetInt("games")
 			} else {
 				// sort by popularity
-				return currentIndex[i].GetInt("games") > currentIndex[j].GetInt("games")
+				return builds[i].GetInt("games") > builds[j].GetInt("games")
 			}
 		})
 
-		if i == 0 {
-			primaryStyleId = uint16(currentIndex[0].GetInt("treeId"))
-		} else if i == 3 {
-			secondaryStyleId = uint16(currentIndex[0].GetInt("treeId"))
+		selectedBuild := builds[0]
+		selectedRunes := selectedBuild.GetArray("runes")
+
+		var primaryStyleId uint16
+		var secondaryStyleId uint16
+
+		finalRunes := []uint16{}
+		for i := 0; i < 8; i++ {
+			currentIndex := []*fastjson.Value{}
+			for _, run := range selectedRunes {
+				if run.GetInt("index") == i {
+					currentIndex = append(currentIndex, run)
+				}
+			}
+
+			sort.SliceStable(currentIndex, func(i, j int) bool {
+				if winRate {
+					// sort by win-rate:
+					return currentIndex[i].GetInt("wins")/currentIndex[i].GetInt("games") > currentIndex[j].GetInt("wins")/currentIndex[j].GetInt("games")
+				} else {
+					// sort by popularity
+					return currentIndex[i].GetInt("games") > currentIndex[j].GetInt("games")
+				}
+			})
+
+			if i == 0 {
+				primaryStyleId = uint16(currentIndex[0].GetInt("treeId"))
+			} else if i == 3 {
+				secondaryStyleId = uint16(currentIndex[0].GetInt("treeId"))
+			}
+
+			finalRunes = append(finalRunes, uint16(currentIndex[0].GetInt("runeId")))
 		}
 
-		finalRunes = append(finalRunes, uint16(currentIndex[0].GetInt("runeId")))
+		primaryRune := uint16(selectedBuild.GetInt("primaryRune"))
+		// append primary and secondary style runes at THE BEGGINING of finalRunes
+		finalRunes = append([]uint16{primaryStyleId, secondaryStyleId, primaryRune}, finalRunes...)
+
+		startingItems := []uint16{}
+		completedItems := []uint16{}
+
+		// Get starting items
+		selectStartItems := selectedBuild.GetArray("startingItems")
+		sort.SliceStable(selectStartItems, func(i, j int) bool {
+			if winRate {
+				// sort by win-rate:
+				return selectStartItems[i].GetInt("wins")/selectStartItems[i].GetInt("games") > selectStartItems[j].GetInt("wins")/selectStartItems[j].GetInt("games")
+			} else {
+				// sort by popularity
+				return selectStartItems[i].GetInt("games") > selectStartItems[j].GetInt("games")
+			}
+		})
+
+		for _, item := range selectStartItems[0].GetArray("startingItemIds") {
+			startingItems = append(startingItems, uint16(item.GetUint()))
+		}
+
+		// Get completed items
+		selectedItems := selectedBuild.GetArray("completedItems")
+
+		// Sometimes it gives us the first 4 items, sometimes only the
+		// first 3. We need to check if we have 4 items or not.
+		sort.SliceStable(selectedItems, func(i, j int) bool {
+			return selectedItems[i].GetInt("index") > selectedItems[j].GetInt("index")
+		})
+		lastIndex := selectedItems[0].GetInt("index") + 1
+
+		for i := 0; i < lastIndex; i++ {
+			currentIndex := []*fastjson.Value{}
+			for _, item := range selectedItems {
+				if item.GetInt("index") == i {
+					currentIndex = append(currentIndex, item)
+				}
+			}
+
+			sort.SliceStable(currentIndex, func(i, j int) bool {
+				if winRate {
+					// sort by win-rate:
+					return currentIndex[i].GetInt("wins")/currentIndex[i].GetInt("games") > currentIndex[j].GetInt("wins")/currentIndex[j].GetInt("games")
+				} else {
+					// sort by popularity
+					return currentIndex[i].GetInt("games") > currentIndex[j].GetInt("games")
+				}
+			})
+
+			completedItems = append(completedItems, uint16(currentIndex[0].GetInt("itemId")))
+		}
+
+		mythicIndex := selectedBuild.GetInt("mythicAverageIndex")
+		mythicId := selectedBuild.GetUint("mythicId")
+		completedItems = append(completedItems[:mythicIndex+1], completedItems[mythicIndex:]...)
+		completedItems[mythicIndex] = uint16(mythicId)
+
+		allItems = append(allItems, completedItems)
+		allStartingItems = append(allStartingItems, startingItems)
+		allRunes = append(allRunes, finalRunes)
+		winRate = true
 	}
 
-	primaryRune := uint16(selectedBuild.GetInt("primaryRune"))
-
-	// append primary and secondary style runes at THE BEGGINING of finalRunes
-	finalRunes = append([]uint16{primaryStyleId, secondaryStyleId, primaryRune}, finalRunes...)
-
-	return finalRunes, nil
+	return ChampionBuild{
+		Runes: SortedRunes{
+			ByPopularity: allRunes[0],
+			ByWinRate:    allRunes[1],
+		},
+		StartingItems: SortedItems{
+			ByPopularity: allStartingItems[0],
+			ByWinRate:    allStartingItems[1],
+		},
+		Items: SortedItems{
+			ByPopularity: allItems[0],
+			ByWinRate:    allItems[1],
+		},
+	}, nil
 }
 
 // Returns an object accepted by the /lol-perks/v1/perks LCU endpoint.
@@ -1099,6 +1269,8 @@ func RuneArrayToObject(runes []uint16, championId uint16, role string) (runesObj
 	} else {
 		desc = role
 	}
+
+	desc = string(desc[0]) + strings.ToLower(desc[1:])
 
 	r.Set("name", a.NewString("[GTools] "+championNames[championId]+" "+desc))
 	r.Set("primaryStyleId", a.NewNumberInt(int(runes[0])))
