@@ -70,7 +70,7 @@ const BuildPageComponent: Component<{ currentChampion: ChampionInfo }> = (props)
                     </For>
                 </span>
                 <span class="font-inter leading-tight text-xs">
-                    <span class="pl-2">STARTING ITEMS:</span>
+                    <span class="pl-1">STARTING ITEMS:</span>
                     <span class="flex mt-1 w-full">
                         <For each={props.currentChampion[startingItemSort()]}>
                             {(item) => <ItemComponent item={item} />}
@@ -78,7 +78,7 @@ const BuildPageComponent: Component<{ currentChampion: ChampionInfo }> = (props)
                     </span>
                 </span>
                 <span class="font-inter leading-tight text-xs">
-                    <span class="pl-2">FULL ITEMS:</span>
+                    <span class="pl-1">FULL ITEMS:</span>
                     <span class="flex mt-1 w-full">
                         <For each={props.currentChampion[itemSort()]}>
                             {(item) => <ItemComponent item={item} />}
