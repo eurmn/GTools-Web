@@ -32,9 +32,10 @@ function RuneComponent(props: { rune: Rune, treeId?: number, bigger?: boolean, b
         <span class={`flex my-2 items-center`}>
             <span class={`aspect-square ${props.bigger ? 'h-20 w-20' : 'h-10 w-10'} my-2 rounded-full flex items-center justify-center`}
                 style={props.background ? `background: ${color(props.treeId || 0)}` : ''}>
-                <img src={props.rune.Asset} class={`inline ${props.bigger ? 'h-18 w-18 -translate-x-5' : 'h-9 w-9'} aspect-square`}></img>
+                <img src={props.rune.Asset} class={`transform inline ${props.bigger ? 'h-18 w-18 -translate-x-5' : 'h-9 w-9'}
+                    aspect-square`}></img>
             </span>
-            <span class={`ml-5 ${props.bigger ? '-translate-x-10' : ''} max-h-14 overflow-hidden`}>
+            <span class={`transform ml-5 ${props.bigger ? '-translate-x-10' : ''} max-h-14 lg:max-h-full overflow-hidden`}>
                 <div style={`color: ${color(props.treeId || 0)}`}>{props.rune.Info.Name}</div>
                 <div class="text-xs text-gray-300">{props.rune.Info.Description}</div>
             </span>

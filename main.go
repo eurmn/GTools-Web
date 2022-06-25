@@ -10,6 +10,7 @@ import (
 	"html"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -27,6 +28,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/microcosm-cc/bluemonday"
+	"github.com/thoas/go-funk"
 	"github.com/valyala/fastjson"
 	"golang.org/x/sys/windows"
 )
@@ -36,9 +38,10 @@ var (
 )
 
 const (
-	USER_INFO       = uint8(0)
-	CHAMPION_CHANGE = uint8(1)
-	CDRAGON         = "https://raw.communitydragon.org/latest"
+	USER_INFO         = uint8(0)
+	CHAMPION_CHANGE   = uint8(1)
+	QUIT_CHAMP_SELECT = uint8(2)
+	CDRAGON           = "https://raw.communitydragon.org/latest"
 )
 
 type AuthInformation struct {
@@ -155,6 +158,114 @@ func main() {
 
 		// TODO: set log to log-file at %appdata% or %localappdata%
 	}
+
+	router.GET("/tier-list", func(c *gin.Context) {
+		url := "https://league-champion-aggregate.iesdev.com/graphql?query=query" +
+			url.QueryEscape(
+				" TierList($region:Region,$queue:Queue,$tier:Tier){allChampionStats(region:$region,queue:$queue,tier:$tier,mostPopular:true)"+
+					"{championId role patch wins games tierListTier{tierRank previousTierRank status}}}") +
+			"&variables=" + url.QueryEscape("{\"queue\":\"SUMMONERS_RIFT_DRAFT_PICK\",\"region\":\"WORLD\"}")
+
+		resp, err := http.Get(url)
+
+		if err != nil {
+			log.Printf("Failed to request: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("Failed to read response: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		content, err := fastjson.ParseBytes(body)
+		if err != nil {
+			log.Printf("Failed to parse response: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		tierList := content.Get("data").GetArray("allChampionStats")
+		a := fastjson.Arena{}
+
+		topTierList := funk.Filter(tierList, func(champ *fastjson.Value) bool {
+			return string(champ.GetStringBytes("role")) == "TOP"
+		}).([]*fastjson.Value)
+		jungleTierList := funk.Filter(tierList, func(champ *fastjson.Value) bool {
+			return string(champ.GetStringBytes("role")) == "JUNGLE"
+		}).([]*fastjson.Value)
+		midTierList := funk.Filter(tierList, func(champ *fastjson.Value) bool {
+			return string(champ.GetStringBytes("role")) == "MID"
+		}).([]*fastjson.Value)
+		adcTierList := funk.Filter(tierList, func(champ *fastjson.Value) bool {
+			return string(champ.GetStringBytes("role")) == "ADC"
+		}).([]*fastjson.Value)
+		supTierList := funk.Filter(tierList, func(champ *fastjson.Value) bool {
+			return string(champ.GetStringBytes("role")) == "SUPPORT"
+		}).([]*fastjson.Value)
+
+		sort.SliceStable(tierList, func(i, j int) bool {
+			return tierList[i].GetFloat64("wins")/tierList[i].GetFloat64("games") > tierList[j].GetFloat64("wins")/tierList[j].GetFloat64("games")
+		})
+		sort.SliceStable(topTierList, func(i, j int) bool {
+			return topTierList[i].GetFloat64("wins")/topTierList[i].GetFloat64("games") > topTierList[j].GetFloat64("wins")/topTierList[j].GetFloat64("games")
+		})
+		sort.SliceStable(jungleTierList, func(i, j int) bool {
+			return jungleTierList[i].GetFloat64("wins")/jungleTierList[i].GetFloat64("games") > jungleTierList[j].GetFloat64("wins")/jungleTierList[j].GetFloat64("games")
+		})
+		sort.SliceStable(midTierList, func(i, j int) bool {
+			return midTierList[i].GetFloat64("wins")/midTierList[i].GetFloat64("games") > midTierList[j].GetFloat64("wins")/midTierList[j].GetFloat64("games")
+		})
+		sort.SliceStable(adcTierList, func(i, j int) bool {
+			return adcTierList[i].GetFloat64("wins")/adcTierList[i].GetFloat64("games") > adcTierList[j].GetFloat64("wins")/adcTierList[j].GetFloat64("games")
+		})
+		sort.SliceStable(supTierList, func(i, j int) bool {
+			return supTierList[i].GetFloat64("wins")/supTierList[i].GetFloat64("games") > supTierList[j].GetFloat64("wins")/supTierList[j].GetFloat64("games")
+		})
+
+		tiers := []string{"S", "A", "B", "C", "D"}
+		generateTierObject := func(currentTierList []*fastjson.Value) *fastjson.Value {
+			tierArray := a.NewArray()
+
+			i := 0
+			for _, champ := range currentTierList {
+				if champ.Get("tierListTier").Type() == fastjson.TypeNull {
+					continue
+				}
+
+				id := uint16(champ.GetUint("championId"))
+				champObj := a.NewObject()
+
+				champObj.Set("role", champ.Get("role"))
+				champObj.Set("name", a.NewString(championNames[id]))
+				champObj.Set("id", champ.Get("championId"))
+				champObj.Set("winrate", a.NewNumberFloat64(
+					math.Round(champ.GetFloat64("wins")*10000/champ.GetFloat64("games"))/100,
+				))
+				champObj.Set("tier", a.NewString(tiers[champ.Get("tierListTier").GetInt("tierRank")-1]))
+
+				tierArray.SetArrayItem(i, champObj)
+				i++
+			}
+
+			return tierArray
+		}
+
+		returnedTierList := a.NewObject()
+		returnedTierList.Set("ALL", generateTierObject(tierList))
+		returnedTierList.Set("TOP", generateTierObject(topTierList))
+		returnedTierList.Set("JUNGLE", generateTierObject(jungleTierList))
+		returnedTierList.Set("MID", generateTierObject(midTierList))
+		returnedTierList.Set("ADC", generateTierObject(adcTierList))
+		returnedTierList.Set("SUP", generateTierObject(supTierList))
+
+		c.Header("Content-Type", "application/json")
+		c.String(200, string(returnedTierList.MarshalTo(nil)))
+	})
 
 	router.GET("/sample-build", func(c *gin.Context) {
 		build, err := GetBuildForChampion(126, "MID", "RANKED_SOLO_5X5")
@@ -338,6 +449,86 @@ func main() {
 			return
 		}
 
+		c.Status(http.StatusOK)
+	})
+
+	router.POST("/import-items", func(c *gin.Context) {
+		defer c.Request.Body.Close()
+
+		// Read request body.
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			log.Printf("Failed to read request body: %v", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
+
+		bodyJson, err := fastjson.ParseBytes(body)
+		if err != nil {
+			log.Printf("Failed to parse request body: %v", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
+
+		itemsJson := bodyJson.GetArray("items")
+		startingItemsJson := bodyJson.GetArray("starting_items")
+		championIdString := string(bodyJson.GetStringBytes("champion_id"))
+		role := string(bodyJson.GetStringBytes("role"))
+
+		championId, err := strconv.ParseUint(championIdString, 10, 16)
+		if err != nil {
+			log.Printf("Failed to parse champion id: %v", err)
+			c.Status(http.StatusBadRequest)
+			return
+		}
+
+		items := []uint16{}
+		for _, item := range itemsJson {
+			items = append(items, uint16(item.GetInt()))
+		}
+
+		startingItems := []uint16{}
+		for _, item := range startingItemsJson {
+			startingItems = append(startingItems, uint16(item.GetInt()))
+		}
+
+		itemsLCU := ItemArrayToObject(startingItems, items, uint16(championId), role)
+		itemBytes := itemsLCU.MarshalTo(nil)
+
+		// LCU uses a self-signed certificate, so we need to disable TLS verification.
+		// https://developer.riotgames.com/docs/lol#game-client-api_root-certificate-ssl-errors
+		lcuClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		}
+
+		r, err := http.NewRequest(http.MethodPost, "https://"+authInfo.Url+"/lol-item-sets/v1/item-sets/"+userInformation.SummonerId+"/sets", bytes.NewBuffer(itemBytes))
+		if err != nil {
+			log.Printf("Failed to create request: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		r.SetBasicAuth("riot", authInfo.Authentication)
+
+		res, err := lcuClient.Do(r)
+		if err != nil {
+			log.Printf("Failed to send request: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		defer res.Body.Close()
+		body, err = io.ReadAll(res.Body)
+		if err != nil {
+			log.Printf("Failed to read response body: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		log.Println(string(body))
 		c.Status(http.StatusOK)
 	})
 
@@ -546,7 +737,9 @@ func LcuCommunication() {
 
 		switch string(j.GetStringBytes("1")) {
 		case "OnJsonApiEvent_lol-champ-select_v1_session", "OnJsonApiEvent_lol-champ-select-legacy_v1_session":
-			if string(j.Get("2").GetStringBytes("eventType")) != "Delete" {
+			if string(j.Get("2").GetStringBytes("eventType")) == "Delete" {
+				EmitEvent(QUIT_CHAMP_SELECT, nil)
+			} else {
 				data := j.Get("2").Get("data")
 
 				cid := uint16(0)
@@ -608,8 +801,14 @@ func LcuCommunication() {
 						break
 					}
 
+					// 430 = blink pick; 450 = aram; 900 = arurf.
 					queueId := content.GetInt("queueId")
-					// 430 = blink pick; 450 = aram.
+
+					// the champ select endpoint will handle it, skip.
+					if string(j.GetStringBytes("1")) == "OnJsonApiEvent_lol-champ-select-legacy_v1_session" && queueId == 400 {
+						return
+					}
+
 					if queueId == 450 || queueId == 900 {
 						queue = "HOWLING_ABYSS_ARAM"
 					} else {
@@ -725,6 +924,10 @@ func CreateWSMessage(eventType uint8, data interface{}) (msg map[string]interfac
 			"itemsByWinRate":            data.(ChampionChange).ItemsByWinRate,
 			"startingItemsByPopularity": data.(ChampionChange).StartingItemsByPopularity,
 			"startingItemsByWinRate":    data.(ChampionChange).StartingItemsByWinRate,
+		}, nil
+	case QUIT_CHAMP_SELECT:
+		return map[string]interface{}{
+			"type": eventType,
 		}, nil
 	default:
 		return nil, errors.New("unknown event type")
@@ -1255,6 +1458,68 @@ func GetBuildForChampion(championId uint16, role string, queue string) (build Ch
 			ByWinRate:    allItems[1],
 		},
 	}, nil
+}
+
+// Returns an object accepted by /lol-item-sets/v1/item-sets/{summonerId}/sets
+func ItemArrayToObject(startingItems []uint16, items []uint16, championId uint16, role string) (runesObject *fastjson.Value) {
+	a := fastjson.Arena{}
+	it := a.NewObject()
+
+	var desc string
+	if role == "" {
+		desc = "ARAM"
+	} else {
+		desc = role
+	}
+
+	desc = string(desc[0]) + strings.ToLower(desc[1:])
+
+	it.Set("title", a.NewString("[GTools] "+championNames[championId]+" "+desc))
+
+	c := a.NewArray()
+	c.SetArrayItem(0, a.NewNumberInt(int(championId)))
+	it.Set("associatedChampions", c)
+
+	// Assign to both SR and ARAM
+	maps := a.NewArray()
+	maps.SetArrayItem(0, a.NewNumberInt(11))
+	if desc == "ARAM" {
+		maps.SetArrayItem(1, a.NewNumberInt(12))
+	}
+	it.Set("associatedMaps", a.NewArray())
+
+	blocks := a.NewArray()
+
+	// starting items
+	startBlock := a.NewObject()
+	itemsObject := a.NewArray()
+	for i, item := range startingItems {
+		itemObject := a.NewObject()
+		itemObject.Set("id", a.NewString(fmt.Sprint(item)))
+		itemObject.Set("count", a.NewNumberInt(1))
+		itemsObject.SetArrayItem(i, itemObject)
+	}
+	startBlock.Set("items", itemsObject)
+	startBlock.Set("type", a.NewString("Starting Items"))
+
+	// completed items
+	completedBlock := a.NewObject()
+	itemsObject = a.NewArray()
+	for i, item := range items {
+		itemObject := a.NewObject()
+		itemObject.Set("id", a.NewString(fmt.Sprint(item)))
+		itemObject.Set("count", a.NewNumberInt(1))
+		itemsObject.SetArrayItem(i, itemObject)
+	}
+	completedBlock.Set("items", itemsObject)
+	completedBlock.Set("type", a.NewString("Full Items"))
+
+	blocks.SetArrayItem(0, startBlock)
+	blocks.SetArrayItem(1, completedBlock)
+
+	it.Set("blocks", blocks)
+
+	return it
 }
 
 // Returns an object accepted by the /lol-perks/v1/perks LCU endpoint.

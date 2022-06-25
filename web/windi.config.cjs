@@ -1,3 +1,5 @@
+const { transform } = require('windicss/helpers')
+
 module.exports = {
     content: ["./src/**/*.{html,js,jsx,tsx}", "./index.html"],
     theme: {
@@ -5,8 +7,12 @@ module.exports = {
             fontFamily: {
                 inter: ["\"InterVariable\"", "sans-serif"],
                 quicksand: ["\"QuicksandVariable\"", "sans-serif"],
+                ubuntu: ["\"UbuntuMonoVariable\"", "monospace"],
             }
         },
     },
-    plugins: [],
+    plugins: [
+        require('windicss/plugin/aspect-ratio'),
+        transform('daisyui'),
+    ],
 }

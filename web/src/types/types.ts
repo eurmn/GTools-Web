@@ -10,7 +10,7 @@ export type ChampionInfo = {
     startingItemsByPopularity: Item[],
     startingItemsByWinRate:    Item[],
     role:                      string
-}
+} | null
 
 export type Rune = {
     Id:    number,
@@ -27,6 +27,25 @@ export type Item = {
     Name:  string,
 }
 
+export type TierListItem = {
+    name: string,
+    id: number,
+    winrate: number,
+    tier: 'S' | 'A' | 'B' | 'C' | 'D',
+    role: Role,
+}
+
+export type Role = 'ALL' | 'TOP' | 'JUNGLE' | 'MID' | 'ADC' | 'SUP';
+
+export type TierList = {
+    "ALL": TierListItem[],
+    "TOP": TierListItem[],
+    "JUNGLE": TierListItem[],
+    "MID": TierListItem[],
+    "ADC": TierListItem[],
+    "SUP": TierListItem[],
+}
+
 export let RuneColors  = {
     '8000': '#FDE047',
     '8100': '#DC2626',
@@ -41,8 +60,9 @@ export type UserInfo = {
 }
 
 export enum EventType {
-    USER_INFO        = 0,
-    CHAMPION_CHANGE  = 1,
+    USER_INFO         = 0,
+    CHAMPION_CHANGE   = 1,
+    QUIT_CHAMP_SELECT = 2,
 }
 
 export type Event = {
@@ -60,4 +80,10 @@ export type Event = {
     startingItemsByPopularity: Item[];
     startingItemsByWinRate:    Item[];
     role:                      string;
+} | {
+    type: EventType.QUIT_CHAMP_SELECT;
+}
+
+export function championTileURL(championId: string): string {
+    return `${CDRAGON}/plugins/rcp-be-lol-game-data/global/default/v1/champion-tiles/${championId}/${championId}000.jpg`;
 }

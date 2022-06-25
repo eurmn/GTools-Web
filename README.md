@@ -30,5 +30,5 @@ A lightweight League of Legends's rune importer with external access from any lo
   - [ ] Runes can have mixed-up trees (example with Jayce, manaflow band + treasure hunter).
   - [ ] Connecting to the client after the app is already open makes the app not recieve updates on the lobby endpoint.
 
-### Riot Games: Third Party Applications
+## Riot Games: Third Party Applications
 https://support-leagueoflegends.riotgames.com/hc/en-us/articles/225266848

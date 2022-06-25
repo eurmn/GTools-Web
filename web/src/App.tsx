@@ -1,7 +1,8 @@
-import { Component, createSignal, For, Show } from 'solid-js';
+import { Component, createSignal, Show } from 'solid-js';
 import BuildPageComponent from './components/BuildPageComponent';
+import TierListPageComponent from './components/TierListPageComponent';
 
-import { CDRAGON, Event, EventType, ChampionInfo, UserInfo, Rune } from './types/types'
+import { CDRAGON, Event, EventType, ChampionInfo, UserInfo } from './types/types'
 
 function iconURL(iconId: string): string {
     return `${CDRAGON}/plugins/rcp-be-lol-game-data/global/default/v1/profile-icons/${iconId}.jpg`;
@@ -9,7 +10,7 @@ function iconURL(iconId: string): string {
 
 const App: Component = () => {
     let [userInfo, setUserInfo] = createSignal<UserInfo>();
-    let [currentChampion, setCurrentChampion] = createSignal<ChampionInfo>();
+    let [currentChampion, setCurrentChampion] = createSignal<ChampionInfo>(null);
 
     let ws = new WebSocket('ws://' + location.hostname + ':4246/lcu');
     ws.onmessage = (e: MessageEvent<string>) => {
@@ -34,7 +35,9 @@ const App: Component = () => {
                     startingItemsByWinRate:    data.startingItemsByWinRate,
                     role:                      data.role
                 } as ChampionInfo);
-                
+                break;
+            case EventType.QUIT_CHAMP_SELECT:
+                setCurrentChampion(null)
                 break;
         }
     };
@@ -48,7 +51,7 @@ const App: Component = () => {
 
     // Sample data for Aurelion Sol. Use it to debug the UI without needing
     // to create a custom game.
-    fetch('http://' + location.hostname + ':4246/sample-build').then(res => {
+    /* fetch('http://' + location.hostname + ':4246/sample-build').then(res => {
         res.json().then(data => {
             console.log(data);
             setCurrentChampion({
@@ -63,13 +66,11 @@ const App: Component = () => {
                 role:                      data.role
             } as ChampionInfo);
         });
-    }).catch(console.log);
+    }).catch(console.log); */
 
     return (
         <div class="flex flex-col h-full text-white px-4 font-inter">
-            <Show when={userInfo()} /* fallback={
-                <div class="text-5xl text-center">Waiting for League Client to Open...</div>
-            } */>
+            <Show when={userInfo()}>
                 <div class="my-2 w-full text-xl tracking-tight font-inter antialiased flex">
                     <span class="p-2 bg-slate-700 rounded-2xl ml-auto
                         flex items-center shadow shadow-black/50">
@@ -79,7 +80,9 @@ const App: Component = () => {
                     </span>
                 </div>
             </Show>
-            <Show when={currentChampion()}>
+            <Show when={currentChampion()} fallback={
+                <TierListPageComponent />
+            }>
                 <BuildPageComponent currentChampion={currentChampion()!}></BuildPageComponent>
             </Show>
         </div>

@@ -1,4 +1,5 @@
 import { Rune } from "../types/types";
+import Tooltip from "./Tooltip";
 
 function StatComponent(props: {rune: Rune}) {
     return (
@@ -6,9 +7,7 @@ function StatComponent(props: {rune: Rune}) {
             <span class="bg-gray-900 w-5 h-5 flex justify-center items-center rounded-full">
                 <img src={props.rune.Asset} class="inline w-5 h-5"></img>
             </span>
-            <span class="text-xs whitespace-nowrap absolute top-0 left-1/2 -translate-y-[115%] p-1 -translate-x-1/2 bg-black/50 invisible group-hover:visible rounded">
-                {props.rune.Info.Name}
-            </span>
+            <Tooltip text={props.rune.Info.Name} />
         </span>
     )
 }
