@@ -3,8 +3,6 @@ A lightweight League of Legends's rune importer with external access from any lo
 
 ### Migration: This repository is being archived in favor of [a new version made up with rust and tauri](https://github.com/euromoon/GTools)
 
-<br>
-
 ## Build:
  - Install dependencies:
    * bash shell (with `rm`, `mkdir`, `cp` and `zip`)
