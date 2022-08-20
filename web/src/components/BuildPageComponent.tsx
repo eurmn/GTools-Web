@@ -60,8 +60,7 @@ const BuildPageComponent: Component<{ currentChampion: ChampionInfo }> = (props)
                         class="transform text-center h-[1.4em] w-[1.4em] rounded-full absolute top-1/2 left-1/2
                             -translate-x-1/2 -translate-y-1/2" />
                 </span>
-                <span class="leading-[1.5em] font-extrabold text-center md:text-5xl text-3xl mx-4">{props.currentChampion!.name}
-                    {props.currentChampion!.role}</span>
+                <span class="leading-[1.5em] font-extrabold text-center md:text-5xl text-3xl mx-4">{props.currentChampion!.name} {props.currentChampion!.role}</span>
                 <div class="h-5 flex items-center justify-center px-1 w-full my-3 text-gray-300 font-extrabold text-sm md:text-xs">
                     <span class={`shadow-black/30 rounded-l-full p-1 pl-2 mr-0.5 ${sort() == 'ByWinRate' ? 'bg-indigo-800 cursor-pointer shadow-md' : 'bg-slate-700 text-gray-400 shadow-inner'}`}
                         onClick={() => setSort('ByPopularity')}>Popularity</span>

@@ -2,6 +2,7 @@
 A lightweight League of Legends's rune importer with external access from any local device.
 
 ### Migration: This repository is being archived in favor of [a new version made up with rust and tauri](https://github.com/euromoon/GTools)
+****![alt text](Isolated.png "Title")
 
 ## Build:
  - Install dependencies:
@@ -12,6 +13,10 @@ A lightweight League of Legends's rune importer with external access from any lo
     ```
     $ make
     ```
+
+## Screenshots:
+<img src="img/tier-list.png" alt="tier list screenshot" width="550"/>
+<img src="img/build.png" alt="build page screenshot" width="550"/>
 
 ## To do:
   - [ ] ~~Check League of Legend's most recent version and download newer resources automatically.~~ (discarted)
