@@ -15,8 +15,10 @@ A lightweight League of Legends's rune importer with external access from any lo
     ```
 
 ## Screenshots:
-<img src="img/tier-list.png" alt="tier list screenshot" width="550"/>
-<img src="img/build.png" alt="build page screenshot" width="550"/>
+<p align="center">
+ <img src="img/tier-list.png" alt="tier list screenshot" width="900"/>
+ <img src="img/build.png" alt="build page screenshot" width="900"/>
+</p>
 
 ## To do:
   - [ ] ~~Check League of Legend's most recent version and download newer resources automatically.~~ (discarted)
