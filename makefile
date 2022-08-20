@@ -3,7 +3,7 @@ all: build
 build:
 	rm -rf dist/
 	go build -o dist/gtools.exe main.go
-	cd web && pnpm build
+	cd web && pnpm install && pnpm build
 	mkdir -p dist/web/dist/
 	cp -r web/dist/ dist/web/
 	zip -qr dist/gtools.zip dist/

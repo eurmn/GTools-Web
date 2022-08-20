@@ -6,6 +6,8 @@ A lightweight League of Legends's rune importer with external access from any lo
 ## Build:
  - Install dependencies:
    * bash shell (with `rm`, `mkdir`, `cp` and `zip`)
+   * [pnpm](https://pnpm.io/)
+   * [golang](https://go.dev/)
  - run make:
     ```
     $ make
