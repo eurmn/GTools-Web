@@ -1,7 +1,5 @@
 <h1 align="center">⚡ GTools</h1>
-A lightweight League of Legends's rune importer with external access from any local device.
-
-### Migration: This repository is being archived in favor of [a new version made with rust and tauri](https://github.com/euromoon/GTools)
+A lightweight League of Legends's rune importer with a webserver.
 
 ## Build:
  - Install dependencies:
